@@ -42,7 +42,7 @@ const (
 	modeSearch
 	modeComment
 	modeCloseReason
-	modeSwitcher
+	modePicker
 )
 
 // prefetchWindow is how close the cursor may get to the end of the loaded issues
@@ -88,7 +88,9 @@ type Model struct {
 	tally             [numActions]int
 
 	prompt textinput.Model
-	sw     switcher
+	pk           picker
+	repos        []github.Repo // every accessible repo; nil until the cache or API answers
+	reposFetched bool          // ListRepos already requested this session
 }
 
 type (
@@ -116,7 +118,6 @@ func New(client github.Client, opts Options) Model {
 		filter: newInput("/ "), prompt: newInput("search: "),
 		viewport: viewport.New(80, 20),
 		editor:   newEditor(),
-		sw:       switcher{input: newInput("repo: ")},
 	}
 	m.renderer = newRenderer(opts.Style, m.width)
 	if opts.Query != "" {
@@ -195,8 +196,8 @@ func (m *Model) onKey(k tea.KeyMsg) tea.Cmd {
 		return m.keyComment(k)
 	case modeCloseReason:
 		return m.keyCloseReason(k)
-	case modeSwitcher:
-		return m.keySwitcher(k)
+	case modePicker:
+		return m.keyPicker(k)
 	}
 	if m.screen == screenIssue {
 		return m.keyIssue(k)
