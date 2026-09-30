@@ -60,7 +60,7 @@ func (m *Model) onActionDone(msg actionDoneMsg) tea.Cmd {
 }
 
 func (m *Model) startComment(thenClose bool) tea.Cmd {
-	is, ok := m.current()
+	is, ok := m.writable()
 	if !ok {
 		return nil
 	}
@@ -140,7 +140,7 @@ func (m *Model) recordComment(key string, c github.Comment) {
 }
 
 func (m *Model) startClose() tea.Cmd {
-	is, ok := m.current()
+	is, ok := m.writable()
 	if !ok {
 		return nil
 	}

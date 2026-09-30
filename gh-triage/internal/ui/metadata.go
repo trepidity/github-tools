@@ -17,9 +17,17 @@ type optionsLoadedMsg struct {
 	err  error
 }
 
-// writable is the current issue, if actions may change it.
+// writable is the current issue, if actions may change it: not one moved away this session.
 func (m *Model) writable() (github.Issue, bool) {
-	return m.current()
+	is, ok := m.current()
+	if !ok {
+		return is, false
+	}
+	if url, moved := m.transferred[is.Key()]; moved {
+		m.status = "moved to " + url
+		return is, false
+	}
+	return is, true
 }
 
 // updateIssue edits the loaded copy of an issue, if it is still in the queue.

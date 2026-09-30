@@ -88,14 +88,18 @@ func (m Model) row(vi int) string {
 	if vi == m.cursor {
 		marker = "> "
 	}
-	if m.isClosed(is) {
+	_, moved := m.transferred[is.Key()]
+	switch {
+	case moved:
+		state = "→ moved  "
+	case m.isClosed(is):
 		state = "✓ closed  "
 	}
 	line := truncate(fmt.Sprintf("%s%s  %s%s  @%s  %s  💬%d", marker, is.Key(), state, is.Title, is.Author, age(is.CreatedAt), is.Comments), m.width)
 	switch {
 	case vi == m.cursor:
 		return selectedStyle.Render(line)
-	case m.isClosed(is):
+	case m.isClosed(is) || moved:
 		return dimStyle.Render(line)
 	}
 	return line
@@ -109,6 +113,12 @@ func (m Model) viewIssue() string {
 	state := "open"
 	if m.isClosed(is) {
 		state = "✓ closed"
+	}
+	if url, moved := m.transferred[is.Key()]; moved {
+		state = "→ moved to " + url
+	}
+	if is.Locked {
+		state += " · 🔒 locked"
 	}
 	meta := fmt.Sprintf("%s · @%s · %s · %d of %d", state, is.Author, age(is.CreatedAt), m.cursor+1, len(m.visible))
 	if len(is.Labels) > 0 {
@@ -131,6 +141,8 @@ func (m Model) footer(help string) string {
 		line = statusStyle.Render(m.status)
 	case m.mode == modeFilter:
 		line = m.filter.View()
+	case m.mode == modeConfirm:
+		line = statusStyle.Render(m.confirm.question + " (y/n)")
 	case m.mode == modeDupRef:
 		line = m.ref.View() + "  " + statusStyle.Render(m.status)
 	case m.mode == modeCloseReason:

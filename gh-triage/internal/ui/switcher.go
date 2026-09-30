@@ -58,7 +58,7 @@ func (m *Model) repoItems() []pickerItem {
 
 // isRepoPicker reports whether the open picker lists repos (and so refreshes with them).
 func (m *Model) isRepoPicker() bool {
-	return m.mode == modePicker && m.pk.kind == pickRepo
+	return m.mode == modePicker && (m.pk.kind == pickRepo || m.pk.kind == pickTransfer)
 }
 
 // loadRepos refreshes the repo list from GitHub once per session.

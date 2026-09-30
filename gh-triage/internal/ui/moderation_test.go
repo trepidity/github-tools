@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/trepidity/gh-triage/internal/github"
 )
 
 // Protects (spec test 4, review finding 1): if the duplicate comment posts but the close
@@ -68,5 +70,27 @@ func TestUndo_reopens_the_last_close_and_survives_a_stale_search(t *testing.T) {
 	m = press(t, m, "k", "enter", "x") // k: after Task 12, resume lands on o/r#2
 	if !strings.HasPrefix(header(m), "o/r#1 ") || strings.Contains(text(m), "already closed") {
 		t.Fatalf("reopened issue refuses close:\n%s", text(m))
+	}
+}
+
+// Protects (spec test 5): a confirmed transfer marks the row moved, advances, keeps the
+// queue length, and later actions on the moved issue are refused.
+func TestTransfer_marks_row_moved_advances_and_refuses_later_actions(t *testing.T) {
+	f := threeIssues(t)
+	f.repos = []github.Repo{mustRepo(t, "o/r"), mustRepo(t, "o/other")}
+	m := start(t, f, repoOpts)
+
+	m = press(t, m, "enter", "t", "other", "enter", "y")
+	if !reflect.DeepEqual(f.transfers, []string{"o/r#1 → o/other"}) || !strings.HasPrefix(header(m), "o/r#2 ") {
+		t.Fatalf("transfers=%v header=%q", f.transfers, header(m))
+	}
+	m = press(t, m, "p", "x")
+	if !strings.Contains(text(m), "moved to https://github.com/o/other/issues/99") || len(f.closes) != 0 {
+		t.Fatalf("x on moved issue: closes=%v\n%s", f.closes, text(m))
+	}
+	m = press(t, m, "esc")
+	v := lines(m)
+	if rowCount(v) != 3 || !strings.Contains(strings.Join(v, "\n"), "→ moved") {
+		t.Fatalf("list after transfer:\n%s", strings.Join(v, "\n"))
 	}
 }

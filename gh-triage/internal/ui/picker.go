@@ -20,6 +20,8 @@ const (
 	pickReaction                    // react to the current issue
 	pickQuery                       // run a saved or typed search
 	pickTemplate                    // insert a reply template into the comment
+	pickLock                        // lock the current issue with a reason
+	pickTransfer                    // move the current issue to another repo
 )
 
 type pickerItem struct {
@@ -194,6 +196,21 @@ func (m *Model) picked(kind pickerKind, chosen []string, typed string) tea.Cmd {
 	case pickTemplate:
 		m.editor.InsertString(chosen[0])
 		return nil
+	case pickLock:
+		is, _ := m.current()
+		for _, r := range github.AllLockReasons() {
+			if r.String() == chosen[0] {
+				return m.lock(is, r)
+			}
+		}
+		return nil
+	case pickTransfer:
+		to, err := github.ParseRepo(chosen[0])
+		if err != nil {
+			m.status = err.Error()
+			return nil
+		}
+		return m.confirmTransfer(to)
 	}
 	panic(fmt.Sprintf("unknown pickerKind %d", int(kind)))
 }

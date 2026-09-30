@@ -46,6 +46,7 @@ const (
 	modeCloseReason
 	modePicker
 	modeDupRef
+	modeConfirm
 )
 
 // prefetchWindow is how close the cursor may get to the end of the loaded issues
@@ -96,6 +97,8 @@ type Model struct {
 	ref               textinput.Model   // "duplicate of:" prompt
 	dupCommented      map[string]string // key → ref already commented as duplicate; d then only closes
 	lastClose         *github.Issue     // what u reopens; replaced by each close
+	confirm           confirmation      // pending y/n question while mode is modeConfirm
+	transferred       map[string]string // key → new URL for issues moved this session
 	busy              bool              // a GitHub write is in flight; keys are ignored
 	tally             [numActions]int
 
@@ -127,7 +130,7 @@ func New(client github.Client, opts Options) Model {
 		client: client, opts: opts, width: 80, height: 24,
 		stateOverride: map[string]string{}, comments: map[string][]github.Comment{}, commentsLoading: map[string]bool{},
 		drafts: map[string]string{}, commentsErr: map[string]bool{},
-		ref: newInput("duplicate of: "), dupCommented: map[string]string{},
+		ref: newInput("duplicate of: "), dupCommented: map[string]string{}, transferred: map[string]string{},
 		labelOpts: map[github.Repo][]string{}, assigneeOpts: map[github.Repo][]string{},
 		filter:   newInput("/ "),
 		viewport: viewport.New(80, 20),
@@ -216,6 +219,8 @@ func (m *Model) onKey(k tea.KeyMsg) tea.Cmd {
 		return m.keyPicker(k)
 	case modeDupRef:
 		return m.keyDupRef(k)
+	case modeConfirm:
+		return m.keyConfirm(k)
 	}
 	if m.screen == screenIssue {
 		return m.keyIssue(k)
@@ -319,9 +324,17 @@ func (m *Model) keyIssue(k tea.KeyMsg) tea.Cmd {
 		return m.openReactions()
 	case "r":
 		return m.openSwitcher()
+	case "L":
+		return m.startLock()
+	case "t":
+		return m.startTransfer()
 	case "o":
 		if is, ok := m.current(); ok {
-			return openBrowser(is.URL)
+			url := is.URL
+			if moved, ok := m.transferred[is.Key()]; ok {
+				url = moved
+			}
+			return openBrowser(url)
 		}
 		return nil
 	}
