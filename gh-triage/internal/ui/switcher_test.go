@@ -43,7 +43,7 @@ func TestSwitcher_selecting_a_repo_loads_its_open_issues(t *testing.T) {
 	if h := header(m); !strings.Contains(h, "repo:o/r is:issue is:open") {
 		t.Fatalf("header = %q", h)
 	}
-	if row := selectedRow(t, m); !strings.Contains(row, "o/r#1 ") {
+	if row := selectedRow(t, m); !strings.Contains(row, "#1 ") {
 		t.Fatalf("selected row = %q", row)
 	}
 }

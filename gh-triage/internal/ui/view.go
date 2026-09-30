@@ -114,35 +114,141 @@ func (m Model) viewList() string {
 	if len(m.visible) == 0 && !m.loadingPage {
 		b.WriteString("  No issues match.\n")
 	}
+	l := m.rowLayout()
 	for vi := m.offset; vi < len(m.visible) && vi < m.offset+m.listRows(); vi++ {
-		b.WriteString(m.row(vi) + "\n")
+		b.WriteString(m.row(vi, l) + "\n")
 	}
 	b.WriteString(m.footer(listHelp))
 	return b.String()
 }
 
-func (m Model) row(vi int) string {
+// Column widths for list rows. The title takes whatever is left.
+const (
+	labelsWidth = 24
+	authorMax   = 16
+	ageWidth    = 4
+	countWidth  = 3
+	titleMin    = 30
+)
+
+// rowLayout is the column plan shared by every visible row, so columns line up.
+type rowLayout struct {
+	multiRepo                  bool // show owner/repo, not just #n
+	num, title, labels, author int  // widths; 0 = column dropped
+}
+
+func (m Model) rowLayout() rowLayout {
+	var l rowLayout
+	repos := map[github.Repo]bool{}
+	anyLabels := false
+	for _, i := range m.visible {
+		is := m.issues[i]
+		repos[is.Repo] = true
+		anyLabels = anyLabels || len(is.Labels) > 0
+		l.author = min(max(l.author, ansi.StringWidth("@"+is.Author)), authorMax)
+	}
+	l.multiRepo = len(repos) > 1
+	for _, i := range m.visible {
+		l.num = max(l.num, ansi.StringWidth(m.number(m.issues[i], l.multiRepo)))
+	}
+	if anyLabels {
+		l.labels = labelsWidth
+	}
+	fixed := 2 + l.num + 2 + 2 + ageWidth + 2 + countWidth // marker, number, age, comments
+	room := func() int {
+		r := m.width - fixed
+		for _, w := range []int{l.labels, l.author} {
+			if w > 0 {
+				r -= w + 2
+			}
+		}
+		return r
+	}
+	if room() < titleMin {
+		l.labels = 0 // labels go first on narrow terminals…
+	}
+	if room() < titleMin {
+		l.author = 0 // …then the author
+	}
+	l.title = max(room(), 10)
+	return l
+}
+
+func (m Model) number(is github.Issue, multiRepo bool) string {
+	if multiRepo {
+		return is.Key()
+	}
+	return fmt.Sprintf("#%d", is.Number)
+}
+
+// row draws one list row in fixed columns: number, title, labels, author, age, comments.
+// The selected and dimmed rows skip label colors so their own style covers the whole line.
+func (m Model) row(vi int, l rowLayout) string {
 	is := m.issues[m.visible[vi]]
+	_, moved := m.transferred[is.Key()]
+	plain := vi == m.cursor || moved || m.isClosed(is)
 	marker, state := "  ", ""
 	if vi == m.cursor {
 		marker = "> "
 	}
-	_, moved := m.transferred[is.Key()]
 	switch {
 	case moved:
 		state = "→ moved  "
 	case m.isClosed(is):
 		state = "✓ closed  "
 	}
-	line := truncate(fmt.Sprintf("%s%s  %s%s  @%s  %s  💬%d", marker, is.Key(), state, is.Title, is.Author, age(is.CreatedAt), is.Comments), m.width)
+	cols := []string{
+		marker + padLeft(m.number(is, l.multiRepo), l.num),
+		padRight(truncate(state+is.Title, l.title), l.title),
+	}
+	if l.labels > 0 {
+		cols = append(cols, padRight(m.labelList(is.Labels, l.labels, plain), l.labels))
+	}
+	if l.author > 0 {
+		cols = append(cols, padRight(truncate("@"+is.Author, l.author), l.author))
+	}
+	comments := ""
+	if is.Comments > 0 {
+		comments = fmt.Sprint(is.Comments)
+	}
+	cols = append(cols, padLeft(age(is.CreatedAt), ageWidth), padLeft(comments, countWidth))
+	line := truncate(strings.Join(cols, "  "), m.width)
 	switch {
 	case vi == m.cursor:
 		return selectedStyle.Render(line)
-	case m.isClosed(is) || moved:
+	case plain:
 		return dimStyle.Render(line)
 	}
 	return line
 }
+
+// labelList fits as many labels as width allows, each in its GitHub color unless plain,
+// and ends with +N for the ones that did not fit.
+func (m Model) labelList(labels []string, width int, plain bool) string {
+	var parts []string
+	used := 0
+	for i, name := range labels {
+		more := ""
+		if rest := len(labels) - i - 1; rest > 0 {
+			more = fmt.Sprintf(" +%d", rest)
+		}
+		w := ansi.StringWidth(name) + min(used, 1)
+		if used+w+ansi.StringWidth(more) > width {
+			parts = append(parts, fmt.Sprintf("+%d", len(labels)-i))
+			break
+		}
+		used += w
+		if c, ok := m.labelColors[strings.ToLower(name)]; ok && !plain {
+			name = lipgloss.NewStyle().Foreground(lipgloss.Color("#" + c)).Render(name)
+		}
+		parts = append(parts, name)
+	}
+	return strings.Join(parts, " ")
+}
+
+func padRight(s string, w int) string { return s + strings.Repeat(" ", max(w-ansi.StringWidth(s), 0)) }
+
+func padLeft(s string, w int) string { return strings.Repeat(" ", max(w-ansi.StringWidth(s), 0)) + s }
 
 func (m Model) viewIssue() string {
 	is, ok := m.current()

@@ -15,9 +15,12 @@ func threeIssues(t *testing.T) *fakeClient {
 	return &fakeClient{open: issues(t, 1, 3)}
 }
 
+// closedMark reports whether the list row for key (e.g. "o/r#1") is marked closed. A
+// single-repo queue shows bare numbers, so rows are matched by "#1 ".
 func closedMark(t *testing.T, view []string, key string) bool {
+	num := key[strings.Index(key, "#"):]
 	for _, l := range view {
-		if strings.Contains(l, key+" ") {
+		if strings.Contains(l, num+" ") {
 			return strings.Contains(l, "✓ closed")
 		}
 	}
@@ -28,7 +31,7 @@ func closedMark(t *testing.T, view []string, key string) bool {
 func rowCount(view []string) int {
 	n := 0
 	for _, l := range view {
-		if strings.Contains(l, "o/r#") {
+		if (strings.HasPrefix(l, "> ") || strings.HasPrefix(l, "  ")) && strings.Contains(l, "#") {
 			n++
 		}
 	}

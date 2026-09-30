@@ -273,3 +273,17 @@ func TestTransferIssue_sends_issue_and_target_repo_node_ids(t *testing.T) {
 		t.Fatalf("lookup vars = %v, transfer vars = %v", lookup, move)
 	}
 }
+
+// Protects: label colors from search results reach the UI, which tints labels with them.
+func TestSearchIssues_keeps_each_labels_color(t *testing.T) {
+	g, _ := newTestREST(t, func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"items":[{"number":3,"repository_url":"https://api.github.com/repos/o/r","labels":[{"name":"bug","color":"d73a4a"}]}]}`)
+	})
+	issues, _, err := g.SearchIssues(context.Background(), "repo:o/r is:issue", time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := issues[0].LabelColors["bug"]; got != "d73a4a" {
+		t.Fatalf("bug color = %q, want d73a4a", got)
+	}
+}

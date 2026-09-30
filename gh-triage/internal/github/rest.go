@@ -44,7 +44,8 @@ type apiIssue struct {
 	Assignees     []apiUser `json:"assignees"`
 	Locked        bool      `json:"locked"`
 	Labels        []struct {
-		Name string `json:"name"`
+		Name  string `json:"name"`
+		Color string `json:"color"`
 	} `json:"labels"`
 }
 
@@ -78,12 +79,14 @@ func (g *REST) SearchIssues(ctx context.Context, query string, before time.Time)
 			return nil, false, err
 		}
 		labels := make([]string, 0, len(it.Labels))
+		colors := make(map[string]string, len(it.Labels))
 		for _, l := range it.Labels {
 			labels = append(labels, l.Name)
+			colors[l.Name] = l.Color
 		}
 		issues = append(issues, Issue{
 			Repo: repo, Number: it.Number, Title: it.Title, Body: it.Body, Author: it.User.Login,
-			URL: it.HTMLURL, State: it.State, Labels: labels, Comments: it.Comments, CreatedAt: it.CreatedAt,
+			URL: it.HTMLURL, State: it.State, Labels: labels, LabelColors: colors, Comments: it.Comments, CreatedAt: it.CreatedAt,
 			NodeID: it.NodeID, Assignees: logins(it.Assignees), Locked: it.Locked,
 		})
 	}

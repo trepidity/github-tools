@@ -31,7 +31,7 @@ func TestBackToList_puts_the_cursor_on_the_issue_just_viewed(t *testing.T) {
 	m := start(t, f, repoOpts)
 
 	m = press(t, m, "enter", "n", "n", "esc")
-	if row := selectedRow(t, m); !strings.Contains(row, "o/r#3 ") {
+	if row := selectedRow(t, m); !strings.Contains(row, "#3 ") {
 		t.Fatalf("selected row after esc = %q, want o/r#3", row)
 	}
 }
@@ -49,7 +49,7 @@ func TestNearingTheEnd_fetches_the_next_page_exactly_once(t *testing.T) {
 	if f.searches != 2 {
 		t.Fatalf("searches = %d, want 2", f.searches)
 	}
-	if row := selectedRow(t, m); !strings.Contains(row, "o/r#150 ") {
+	if row := selectedRow(t, m); !strings.Contains(row, "#150 ") {
 		t.Fatalf("selected row = %q, want the last issue o/r#150", row)
 	}
 }

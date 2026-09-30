@@ -24,19 +24,20 @@ func ParseRepo(s string) (Repo, error) {
 func (r Repo) String() string { return r.owner + "/" + r.name }
 
 type Issue struct {
-	Repo      Repo
-	Number    int
-	Title     string
-	Body      string
-	Author    string
-	URL       string
-	NodeID    string // GraphQL id, needed to transfer
-	State     string // "open" or "closed"
-	Labels    []string
-	Assignees []string
-	Locked    bool
-	Comments  int
-	CreatedAt time.Time
+	Repo        Repo
+	Number      int
+	Title       string
+	Body        string
+	Author      string
+	URL         string
+	NodeID      string // GraphQL id, needed to transfer
+	State       string // "open" or "closed"
+	Labels      []string
+	LabelColors map[string]string // label name → GitHub hex color, e.g. "d73a4a"
+	Assignees   []string
+	Locked      bool
+	Comments    int
+	CreatedAt   time.Time
 }
 
 // Key identifies an issue across repos, e.g. "cli/cli#123".

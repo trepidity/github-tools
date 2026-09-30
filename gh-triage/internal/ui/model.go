@@ -94,6 +94,7 @@ type Model struct {
 
 	me           string                   // signed-in login, learned on first `a`
 	labelOpts    map[github.Repo][]string // repo labels, fetched once per session
+	labelColors  map[string]string        // lowercased label name → GitHub hex color, from every loaded page
 	assigneeOpts map[github.Repo][]string // assignable users, fetched once per session
 
 	editor            textarea.Model
@@ -137,7 +138,7 @@ func New(client github.Client, opts Options) Model {
 		stateOverride: map[string]string{}, comments: map[string][]github.Comment{}, commentsLoading: map[string]bool{},
 		drafts: map[string]string{}, commentsErr: map[string]bool{},
 		ref: newInput("duplicate of: "), dupCommented: map[string]string{}, transferred: map[string]string{},
-		labelOpts: map[github.Repo][]string{}, assigneeOpts: map[github.Repo][]string{},
+		labelOpts: map[github.Repo][]string{}, labelColors: map[string]string{}, assigneeOpts: map[github.Repo][]string{},
 		filter:   newInput("/ "),
 		viewport: viewport.New(80, 20),
 		editor:   newEditor(),
@@ -501,6 +502,9 @@ func (m *Model) onSearchLoaded(msg searchLoadedMsg) tea.Cmd {
 			seen[is.Key()] = true
 			m.issues = append(m.issues, is)
 			added++
+			for name, c := range is.LabelColors {
+				m.labelColors[strings.ToLower(name)] = c
+			}
 		}
 	}
 	m.hasMore = msg.hasMore && added > 0 // a page of only repeats would request itself forever

@@ -24,7 +24,7 @@ func TestResume_from_the_repo_picker_lands_on_the_saved_issue(t *testing.T) {
 	m := start(t, f, ui.Options{Positions: savedAt(all[180])})
 
 	m = press(t, m, "enter")
-	if row := selectedRow(t, m); !strings.Contains(row, "o/r#181 ") || f.searches != 2 {
+	if row := selectedRow(t, m); !strings.Contains(row, "#181 ") || f.searches != 2 {
 		t.Fatalf("selected %q after %d searches, want o/r#181 after 2", row, f.searches)
 	}
 }
@@ -37,7 +37,7 @@ func TestResume_when_the_saved_issue_is_gone_lands_on_the_next_older(t *testing.
 	f := &fakeClient{open: slices.Delete(slices.Clone(all), 180, 181)}
 	m := start(t, f, ui.Options{Query: ui.RepoQuery(saved.Repo), Positions: savedAt(saved)})
 
-	if row := selectedRow(t, m); !strings.Contains(row, "o/r#182 ") || f.searches != 2 {
+	if row := selectedRow(t, m); !strings.Contains(row, "#182 ") || f.searches != 2 {
 		t.Fatalf("selected %q after %d searches, want o/r#182 after 2", row, f.searches)
 	}
 }
