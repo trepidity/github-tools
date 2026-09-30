@@ -83,6 +83,14 @@ func run() error {
 		Queries:   cfg.Queries,
 		Templates: cfg.Templates,
 	})
-	_, err = tea.NewProgram(model, tea.WithAltScreen()).Run()
-	return err
+	final, err := tea.NewProgram(model, tea.WithAltScreen()).Run()
+	if err != nil {
+		return err
+	}
+	if m, ok := final.(ui.Model); ok {
+		if s := m.Summary(); s != "" {
+			fmt.Println(s)
+		}
+	}
+	return nil
 }

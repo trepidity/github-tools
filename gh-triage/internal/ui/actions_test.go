@@ -237,3 +237,18 @@ func TestMultiLineError_shows_only_its_first_line(t *testing.T) {
 		t.Fatalf("header pushed off screen: %q", header(m))
 	}
 }
+
+// Protects (spec test 11): the quit summary counts only confirmed actions — a failed close
+// is not counted, and an undone close is taken back.
+func TestSummary_counts_only_confirmed_actions(t *testing.T) {
+	f := &fakeClient{open: issues(t, 1, 4)}
+	f.closeErr = errors.New("403 forbidden")
+	m := start(t, f, repoOpts)
+
+	m = press(t, m, "enter", "x", "c")
+	f.closeErr = nil
+	m = press(t, m, "x", "c", "x", "c", "u", "c", "hi", "ctrl+s")
+	if got := m.(ui.Model).Summary(); got != "closed 1 · commented 1" {
+		t.Fatalf("summary = %q, want %q", got, "closed 1 · commented 1")
+	}
+}
