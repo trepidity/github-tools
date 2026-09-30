@@ -150,3 +150,15 @@ func TestClosedThisSession_stays_closed_after_a_new_search(t *testing.T) {
 		t.Fatalf("o/r#1 closed this session shows open after re-search:\n%s", text(m))
 	}
 }
+
+// Protects: the comment box tells the user how to send, even after the placeholder
+// disappears — a user could not find the send key (ctrl+s) in the first real session.
+func TestCommentEditor_shows_how_to_send_while_typing(t *testing.T) {
+	m := start(t, threeIssues(t), repoOpts)
+
+	m = press(t, m, "enter", "c", "Testing an update")
+	v := lines(m)
+	if footer := strings.Join(v[len(v)-2:], "\n"); !strings.Contains(footer, "ctrl+s send") || !strings.Contains(footer, "esc cancel") {
+		t.Fatalf("footer while typing a comment:\n%s", footer)
+	}
+}

@@ -18,8 +18,9 @@ var (
 )
 
 const (
-	listHelp  = "j/k move · enter open · / filter · s search · r repos · q quit"
-	issueHelp = "n/p next/prev · c comment · x close · X comment+close · o browser · r repos · esc list"
+	listHelp    = "j/k move · enter open · / filter · s search · r repos · q quit"
+	issueHelp   = "n/p next/prev · c comment · x close · X comment+close · o browser · r repos · esc list"
+	commentHelp = "ctrl+s send · esc cancel"
 )
 
 func (m Model) View() string {
@@ -116,7 +117,7 @@ func (m Model) viewIssue() string {
 	return headerStyle.Render(truncate(is.Key()+" · "+is.Title, m.width)) + "\n" +
 		truncate(meta, m.width) + "\n" +
 		m.viewport.View() + "\n" + m.editorView() +
-		m.footer(issueHelp)
+		m.footer(m.issueHelp())
 }
 
 // footer is the status line (or the active input) above the help line.
@@ -131,6 +132,8 @@ func (m Model) footer(help string) string {
 		line = m.prompt.View()
 	case m.mode == modeCloseReason:
 		line = statusStyle.Render("close as: c completed · n not planned · esc cancel")
+	case m.mode == modeComment && m.status == "":
+		line = statusStyle.Render("writing comment · " + commentHelp)
 	default:
 		line = statusStyle.Render(m.status)
 	}
@@ -189,4 +192,12 @@ func (m Model) editorView() string {
 		return ""
 	}
 	return m.editor.View() + "\n"
+}
+
+// issueHelp swaps in the editor's keys while a comment is being written.
+func (m Model) issueHelp() string {
+	if m.mode == modeComment {
+		return commentHelp
+	}
+	return issueHelp
 }
