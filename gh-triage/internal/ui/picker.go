@@ -14,7 +14,10 @@ import (
 type pickerKind int
 
 const (
-	pickRepo pickerKind = iota // replace the queue with a repo's open issues
+	pickRepo      pickerKind = iota // replace the queue with a repo's open issues
+	pickLabels                      // set the current issue's labels
+	pickAssignees                   // set the current issue's assignees
+	pickReaction                    // react to the current issue
 )
 
 type pickerItem struct {
@@ -169,6 +172,17 @@ func (m *Model) picked(kind pickerKind, chosen []string, typed string) tea.Cmd {
 			return nil
 		}
 		return m.startSearch(RepoQuery(r))
+	case pickLabels:
+		return m.setLabels(chosen)
+	case pickAssignees:
+		return m.setAssignees(chosen)
+	case pickReaction:
+		for _, r := range github.AllReactions() {
+			if r.String() == chosen[0] {
+				return m.react(r)
+			}
+		}
+		return nil
 	}
 	panic(fmt.Sprintf("unknown pickerKind %d", int(kind)))
 }

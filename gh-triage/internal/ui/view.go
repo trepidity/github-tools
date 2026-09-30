@@ -114,6 +114,9 @@ func (m Model) viewIssue() string {
 	if len(is.Labels) > 0 {
 		meta += " · " + strings.Join(is.Labels, ", ")
 	}
+	if len(is.Assignees) > 0 {
+		meta += " · assigned: " + strings.Join(is.Assignees, ", ")
+	}
 	return headerStyle.Render(truncate(is.Key()+" · "+is.Title, m.width)) + "\n" +
 		truncate(meta, m.width) + "\n" +
 		m.viewport.View() + "\n" + m.editorView() +

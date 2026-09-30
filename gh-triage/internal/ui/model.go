@@ -83,6 +83,10 @@ type Model struct {
 	viewport        viewport.Model
 	renderer        *glamour.TermRenderer
 
+	me           string                   // signed-in login, learned on first `a`
+	labelOpts    map[github.Repo][]string // repo labels, fetched once per session
+	assigneeOpts map[github.Repo][]string // assignable users, fetched once per session
+
 	editor            textarea.Model
 	closeAfterComment bool
 	drafts            map[string]string // unsent comment text by issue key (esc keeps it)
@@ -118,6 +122,7 @@ func New(client github.Client, opts Options) Model {
 		client: client, opts: opts, width: 80, height: 24,
 		stateOverride: map[string]string{}, comments: map[string][]github.Comment{}, commentsLoading: map[string]bool{},
 		drafts: map[string]string{}, commentsErr: map[string]bool{},
+		labelOpts: map[github.Repo][]string{}, assigneeOpts: map[github.Repo][]string{},
 		filter: newInput("/ "), prompt: newInput("search: "),
 		viewport: viewport.New(80, 20),
 		editor:   newEditor(),
@@ -174,6 +179,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = string(msg)
 	case actionDoneMsg:
 		cmd = m.onActionDone(msg)
+	case optionsLoadedMsg:
+		m.onOptionsLoaded(msg)
 	case reposLoadedMsg:
 		m.onReposLoaded(msg)
 	case tea.KeyMsg:
@@ -310,6 +317,14 @@ func (m *Model) keyIssue(k tea.KeyMsg) tea.Cmd {
 		return m.startComment(true)
 	case "x":
 		return m.startClose()
+	case "l":
+		return m.openOptions(pickLabels)
+	case "A":
+		return m.openOptions(pickAssignees)
+	case "a":
+		return m.toggleSelf()
+	case "+":
+		return m.openReactions()
 	case "r":
 		return m.openSwitcher()
 	case "o":
