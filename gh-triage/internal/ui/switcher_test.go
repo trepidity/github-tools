@@ -33,7 +33,7 @@ func TestSwitcher_lists_pins_first_then_all_repos_without_duplicates(t *testing.
 
 // Protects: choosing a repo replaces the queue with that repo's open issues.
 func TestSwitcher_selecting_a_repo_loads_its_open_issues(t *testing.T) {
-	f := &fakeClient{repos: []github.Repo{mustRepo(t, "o/a"), mustRepo(t, "o/r")}, pages: map[int][]github.Issue{1: issues(t, 1, 2)}}
+	f := &fakeClient{repos: []github.Repo{mustRepo(t, "o/a"), mustRepo(t, "o/r")}, open: issues(t, 1, 2)}
 	m := start(t, f, ui.Options{})
 
 	m = press(t, m, "down", "enter")

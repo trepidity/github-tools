@@ -3,6 +3,7 @@ package ui_test
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -15,18 +16,28 @@ import (
 
 // fakeClient stands in for GitHub. Commands run synchronously in tests, so no locking.
 type fakeClient struct {
-	pages      map[int][]github.Issue // search results by page number
-	searches   []int                  // pages requested, in order
-	comments   []string               // "key body" for each AddComment call
-	closes     []string               // "key reason" for each CloseIssue call
+	open       []github.Issue // GitHub's search index for the queue, newest first
+	staleIndex bool           // closed issues stay in search results (GitHub's index lags)
+	searches   int            // SearchIssues calls
+	comments   []string       // "key body" for each AddComment call
+	closes     []string       // "key reason" for each CloseIssue call
 	commentErr error
 	closeErr   error
 	repos      []github.Repo
 }
 
-func (f *fakeClient) SearchIssues(_ context.Context, _ string, page int) ([]github.Issue, bool, error) {
-	f.searches = append(f.searches, page)
-	return f.pages[page], page < len(f.pages), nil
+func (f *fakeClient) SearchIssues(_ context.Context, _ string, before time.Time) ([]github.Issue, bool, error) {
+	f.searches++
+	var out []github.Issue
+	for _, is := range f.open {
+		if before.IsZero() || !is.CreatedAt.After(before) {
+			out = append(out, is)
+		}
+	}
+	if len(out) > 100 {
+		return out[:100], true, nil
+	}
+	return out, false, nil
 }
 
 func (f *fakeClient) GetComments(context.Context, github.Repo, int) ([]github.Comment, error) {
@@ -43,7 +54,13 @@ func (f *fakeClient) AddComment(_ context.Context, r github.Repo, n int, body st
 
 func (f *fakeClient) CloseIssue(_ context.Context, r github.Repo, n int, reason github.CloseReason) error {
 	f.closes = append(f.closes, fmt.Sprintf("%s#%d %s", r, n, reason))
-	return f.closeErr
+	if f.closeErr != nil {
+		return f.closeErr
+	}
+	if !f.staleIndex {
+		f.open = slices.DeleteFunc(f.open, func(is github.Issue) bool { return is.Repo == r && is.Number == n })
+	}
+	return nil
 }
 
 func (f *fakeClient) ListRepos(context.Context) ([]github.Repo, error) { return f.repos, nil }
@@ -57,12 +74,13 @@ func mustRepo(t *testing.T, s string) github.Repo {
 	return r
 }
 
-// issues returns o/r#from … o/r#to.
+// issues returns open issues o/r#from … o/r#to, newest first like GitHub's search order.
 func issues(t *testing.T, from, to int) []github.Issue {
 	repo := mustRepo(t, "o/r")
+	newest := time.Now().Truncate(time.Second)
 	var out []github.Issue
 	for n := from; n <= to; n++ {
-		out = append(out, github.Issue{Repo: repo, Number: n, Title: fmt.Sprintf("Title %d", n), Author: "someone", CreatedAt: time.Now()})
+		out = append(out, github.Issue{Repo: repo, Number: n, Title: fmt.Sprintf("Title %d", n), Author: "someone", CreatedAt: newest.Add(-time.Duration(n) * time.Minute)})
 	}
 	return out
 }

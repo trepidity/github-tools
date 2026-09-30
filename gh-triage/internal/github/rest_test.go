@@ -8,7 +8,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/cli/go-gh/v2/pkg/api"
 )
@@ -89,22 +92,30 @@ func TestAddComment_posts_body_to_the_issue_comments_endpoint(t *testing.T) {
 	}
 }
 
-func TestSearchIssues_maps_repository_and_stops_at_githubs_1000_result_cap(t *testing.T) {
+func TestSearchIssues_continues_before_the_oldest_loaded_issue_and_stops_on_a_short_page(t *testing.T) {
+	item := `{"number":3,"title":"t","state":"closed","repository_url":"https://api.github.com/repos/o/r","user":{"login":"a"},"html_url":"https://github.com/o/r/issues/3","created_at":"2026-01-01T00:00:00Z"}`
+	var queries []string
+	n := 100
 	g, _ := newTestREST(t, func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `{"total_count":5000,"items":[{"number":3,"title":"t","repository_url":"https://api.github.com/repos/o/r","user":{"login":"a"},"html_url":"https://github.com/o/r/issues/3","created_at":"2026-01-01T00:00:00Z"}]}`)
+		queries = append(queries, r.URL.Query().Get("q")+" page="+r.URL.Query().Get("page"))
+		items := strings.TrimSuffix(strings.Repeat(item+",", n), ",")
+		fmt.Fprintf(w, `{"total_count":5000,"items":[%s]}`, items)
 	})
-	issues, more, err := g.SearchIssues(context.Background(), "is:issue", 9)
+	issues, more, err := g.SearchIssues(context.Background(), "repo:o/r is:issue", time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !more {
-		t.Fatal("page 9 of a 5000-result search: hasMore = false, want true")
+	if !more || issues[0].Key() != "o/r#3" || issues[0].Author != "a" || issues[0].State != "closed" {
+		t.Fatalf("first page: more=%v issue=%+v", more, issues[0])
 	}
-	if issues[0].Key() != "o/r#3" || issues[0].Author != "a" {
-		t.Fatalf("issue = %+v", issues[0])
+	n = 7
+	before := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	if _, more, _ = g.SearchIssues(context.Background(), "repo:o/r is:issue", before); more {
+		t.Fatal("a page shorter than 100 is the last one: hasMore = true, want false")
 	}
-	if _, more, _ = g.SearchIssues(context.Background(), "is:issue", 10); more {
-		t.Fatal("page 10 reaches GitHub's 1000-result cap: hasMore = true, want false")
+	want := []string{"repo:o/r is:issue page=1", "repo:o/r is:issue created:<=2026-01-02T03:04:05Z page=1"}
+	if !reflect.DeepEqual(queries, want) {
+		t.Fatalf("queries = %q, want %q", queries, want)
 	}
 }
 

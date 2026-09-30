@@ -5,12 +5,10 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-
-	"github.com/trepidity/gh-triage/internal/github"
 )
 
 func threeIssues(t *testing.T) *fakeClient {
-	return &fakeClient{pages: map[int][]github.Issue{1: issues(t, 1, 3)}}
+	return &fakeClient{open: issues(t, 1, 3)}
 }
 
 func closedMark(t *testing.T, view []string, key string) bool {

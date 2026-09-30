@@ -14,10 +14,7 @@ import (
 	"github.com/cli/go-gh/v2/pkg/api"
 )
 
-const (
-	perPage   = 100
-	searchCap = 1000 // GitHub search never returns more results than this
-)
+const perPage = 100
 
 // REST implements Client with go-gh, which reuses the token `gh auth login` stored.
 type REST struct{ c *api.RESTClient }
@@ -33,6 +30,7 @@ type apiIssue struct {
 	Title         string    `json:"title"`
 	Body          string    `json:"body"`
 	HTMLURL       string    `json:"html_url"`
+	State         string    `json:"state"`
 	RepositoryURL string    `json:"repository_url"`
 	User          apiUser   `json:"user"`
 	Comments      int       `json:"comments"`
@@ -52,11 +50,15 @@ func (c apiComment) toComment() Comment {
 	return Comment{Author: c.User.Login, Body: c.Body, CreatedAt: c.CreatedAt}
 }
 
-func (g *REST) SearchIssues(ctx context.Context, query string, page int) ([]Issue, bool, error) {
-	path := fmt.Sprintf("search/issues?q=%s&sort=created&order=desc&per_page=%d&page=%d", url.QueryEscape(query), perPage, page)
+// SearchIssues pages by creation time rather than page number: page offsets shift as
+// issues are closed out of an is:open search, which would silently skip issues.
+func (g *REST) SearchIssues(ctx context.Context, query string, before time.Time) ([]Issue, bool, error) {
+	if !before.IsZero() {
+		query += " created:<=" + before.UTC().Format(time.RFC3339)
+	}
+	path := fmt.Sprintf("search/issues?q=%s&sort=created&order=desc&per_page=%d&page=1", url.QueryEscape(query), perPage)
 	var resp struct {
-		TotalCount int        `json:"total_count"`
-		Items      []apiIssue `json:"items"`
+		Items []apiIssue `json:"items"`
 	}
 	if err := g.c.DoWithContext(ctx, http.MethodGet, path, nil, &resp); err != nil {
 		return nil, false, err
@@ -73,10 +75,10 @@ func (g *REST) SearchIssues(ctx context.Context, query string, page int) ([]Issu
 		}
 		issues = append(issues, Issue{
 			Repo: repo, Number: it.Number, Title: it.Title, Body: it.Body, Author: it.User.Login,
-			URL: it.HTMLURL, Labels: labels, Comments: it.Comments, CreatedAt: it.CreatedAt,
+			URL: it.HTMLURL, State: it.State, Labels: labels, Comments: it.Comments, CreatedAt: it.CreatedAt,
 		})
 	}
-	return issues, page*perPage < min(resp.TotalCount, searchCap), nil
+	return issues, len(resp.Items) == perPage, nil
 }
 
 // repoFromURL reads the repo out of a repository_url like https://api.github.com/repos/{owner}/{name}.

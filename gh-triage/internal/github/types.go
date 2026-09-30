@@ -29,6 +29,7 @@ type Issue struct {
 	Body      string
 	Author    string
 	URL       string
+	State     string // "open" or "closed"
 	Labels    []string
 	Comments  int
 	CreatedAt time.Time
@@ -63,7 +64,9 @@ func (r CloseReason) String() string {
 
 // Client is everything the UI needs from GitHub.
 type Client interface {
-	SearchIssues(ctx context.Context, query string, page int) (issues []Issue, hasMore bool, err error)
+	// SearchIssues returns the newest matching issues created at or before `before`
+	// (zero = no bound). hasMore reports that older matches may remain.
+	SearchIssues(ctx context.Context, query string, before time.Time) (issues []Issue, hasMore bool, err error)
 	GetComments(ctx context.Context, repo Repo, number int) ([]Comment, error)
 	AddComment(ctx context.Context, repo Repo, number int, body string) (Comment, error)
 	CloseIssue(ctx context.Context, repo Repo, number int, reason CloseReason) error

@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/cursor"
 	"github.com/charmbracelet/bubbles/textarea"
@@ -61,7 +62,6 @@ type Model struct {
 	issues      []github.Issue
 	closed      map[string]bool
 	hasMore     bool
-	nextPage    int
 	loadingPage bool
 
 	// list screen
@@ -86,10 +86,10 @@ type Model struct {
 
 type (
 	searchLoadedMsg struct {
-		gen, page int
-		issues    []github.Issue
-		hasMore   bool
-		err       error
+		gen     int
+		issues  []github.Issue
+		hasMore bool
+		err     error
 	}
 	commentsLoadedMsg struct {
 		key      string
@@ -341,17 +341,22 @@ func (m *Model) startSearch(q string) tea.Cmd {
 	m.issues, m.visible = nil, nil
 	m.closed = map[string]bool{}
 	m.cursor, m.offset = 0, 0
-	m.hasMore, m.nextPage, m.loadingPage = false, 1, true
+	m.hasMore, m.loadingPage = false, true
 	m.filter.SetValue("")
 	m.screen, m.mode, m.status = screenList, modeNone, ""
 	return m.fetchPage()
 }
 
+// fetchPage loads the issues after the oldest one already loaded (results are newest first).
 func (m *Model) fetchPage() tea.Cmd {
-	client, q, gen, page := m.client, m.query, m.gen, m.nextPage
+	client, q, gen := m.client, m.query, m.gen
+	var before time.Time
+	if n := len(m.issues); n > 0 {
+		before = m.issues[n-1].CreatedAt
+	}
 	return func() tea.Msg {
-		issues, hasMore, err := client.SearchIssues(context.Background(), q, page)
-		return searchLoadedMsg{gen: gen, page: page, issues: issues, hasMore: hasMore, err: err}
+		issues, hasMore, err := client.SearchIssues(context.Background(), q, before)
+		return searchLoadedMsg{gen: gen, issues: issues, hasMore: hasMore, err: err}
 	}
 }
 
@@ -378,13 +383,15 @@ func (m *Model) onSearchLoaded(msg searchLoadedMsg) tea.Cmd {
 	for _, is := range m.issues {
 		seen[is.Key()] = true
 	}
+	added := 0
 	for _, is := range msg.issues {
-		if !seen[is.Key()] { // new issues can shift results between pages
+		if !seen[is.Key()] { // created:<= repeats issues sharing the boundary timestamp
 			seen[is.Key()] = true
 			m.issues = append(m.issues, is)
+			added++
 		}
 	}
-	m.hasMore, m.nextPage = msg.hasMore, msg.page+1
+	m.hasMore = msg.hasMore && added > 0 // a page of only repeats would request itself forever
 	m.applyFilter()
 	return m.maybeFetchMore()
 }
