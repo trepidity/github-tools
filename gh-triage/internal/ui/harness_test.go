@@ -24,7 +24,9 @@ type fakeClient struct {
 	commentErr error
 	closeErr   error
 	repos      []github.Repo
-	hang       bool // CloseIssue blocks until the request's context ends, like a hung connection
+	hang       bool             // CloseIssue blocks until the request's context ends, like a hung connection
+	thread     []github.Comment // what GetComments returns for every issue
+	loadErr    error            // GetComments fails with this
 }
 
 func (f *fakeClient) SearchIssues(_ context.Context, _ string, before time.Time) ([]github.Issue, bool, error) {
@@ -42,7 +44,10 @@ func (f *fakeClient) SearchIssues(_ context.Context, _ string, before time.Time)
 }
 
 func (f *fakeClient) GetComments(context.Context, github.Repo, int) ([]github.Comment, error) {
-	return nil, nil
+	if f.loadErr != nil {
+		return nil, f.loadErr
+	}
+	return f.thread, nil
 }
 
 func (f *fakeClient) AddComment(_ context.Context, r github.Repo, n int, body string) (github.Comment, error) {

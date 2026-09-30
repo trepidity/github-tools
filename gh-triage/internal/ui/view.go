@@ -154,7 +154,10 @@ func (m *Model) refreshIssue() {
 	}
 	b.WriteString(body + "\n")
 	cs, loaded := m.comments[is.Key()]
-	if !loaded {
+	switch {
+	case !loaded && m.commentsErr[is.Key()]:
+		b.WriteString("\n---\n\n_Comments failed to load — press R to retry._\n")
+	case !loaded:
 		b.WriteString("\n---\n\n_Loading comments…_\n")
 	}
 	for _, c := range cs {

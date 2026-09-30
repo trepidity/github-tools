@@ -63,12 +63,12 @@ type Model struct {
 	initCmd       tea.Cmd
 
 	// queue
-	query       string
-	gen         int // bumped on every new search so late pages from an old one are dropped
-	issues      []github.Issue
+	query         string
+	gen           int // bumped on every new search so late pages from an old one are dropped
+	issues        []github.Issue
 	stateOverride map[string]string // key → "open"/"closed" confirmed this session; wins over search results (the index lags both ways)
-	hasMore     bool
-	loadingPage bool
+	hasMore       bool
+	loadingPage   bool
 
 	// list screen
 	filter  textinput.Model
@@ -79,15 +79,17 @@ type Model struct {
 	// issue screen
 	comments        map[string][]github.Comment // present = loaded
 	commentsLoading map[string]bool
+	commentsErr     map[string]bool // present = last load failed; R retries
 	viewport        viewport.Model
 	renderer        *glamour.TermRenderer
 
 	editor            textarea.Model
 	closeAfterComment bool
-	busy              bool // a GitHub write is in flight; keys are ignored
+	drafts            map[string]string // unsent comment text by issue key (esc keeps it)
+	busy              bool              // a GitHub write is in flight; keys are ignored
 	tally             [numActions]int
 
-	prompt textinput.Model
+	prompt       textinput.Model
 	pk           picker
 	repos        []github.Repo // every accessible repo; nil until the cache or API answers
 	reposFetched bool          // ListRepos already requested this session
@@ -115,6 +117,7 @@ func New(client github.Client, opts Options) Model {
 	m := Model{
 		client: client, opts: opts, width: 80, height: 24,
 		stateOverride: map[string]string{}, comments: map[string][]github.Comment{}, commentsLoading: map[string]bool{},
+		drafts: map[string]string{}, commentsErr: map[string]bool{},
 		filter: newInput("/ "), prompt: newInput("search: "),
 		viewport: viewport.New(80, 20),
 		editor:   newEditor(),
@@ -291,6 +294,15 @@ func (m *Model) keyIssue(k tea.KeyMsg) tea.Cmd {
 			return m.openIssue(m.cursor - 1)
 		}
 		m.status = "start of queue"
+		return nil
+	case "R":
+		if is, ok := m.current(); ok && m.commentsErr[is.Key()] {
+			delete(m.commentsErr, is.Key())
+			m.status = ""
+			cmd := m.loadComments(is)
+			m.refreshIssue()
+			return cmd
+		}
 		return nil
 	case "c":
 		return m.startComment(false)
@@ -483,12 +495,14 @@ func (m *Model) onCommentsLoaded(msg commentsLoadedMsg) {
 	is, ok := m.current()
 	isCurrent := ok && is.Key() == msg.key
 	if msg.err != nil {
+		m.commentsErr[msg.key] = true
 		if isCurrent {
 			m.status = "loading comments failed: " + firstLine(msg.err.Error())
 		}
-		return
+	} else {
+		delete(m.commentsErr, msg.key)
+		m.comments[msg.key] = msg.comments
 	}
-	m.comments[msg.key] = msg.comments
 	if isCurrent && m.screen == screenIssue {
 		m.refreshIssue()
 	}

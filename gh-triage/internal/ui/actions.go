@@ -71,12 +71,19 @@ func (m *Model) startComment(thenClose bool) tea.Cmd {
 	m.mode = modeComment
 	m.closeAfterComment = thenClose
 	m.editor.Reset()
+	m.editor.SetValue(m.drafts[is.Key()])
 	return m.editor.Focus()
 }
 
 func (m *Model) keyComment(k tea.KeyMsg) tea.Cmd {
 	switch k.String() {
 	case "esc":
+		is, _ := m.current()
+		if v := m.editor.Value(); strings.TrimSpace(v) != "" {
+			m.drafts[is.Key()] = v
+		} else {
+			delete(m.drafts, is.Key())
+		}
 		m.mode = modeNone
 		m.editor.Blur()
 		return nil
@@ -103,6 +110,7 @@ func (m *Model) keyComment(k tea.KeyMsg) tea.Cmd {
 
 func (m *Model) commentPosted(key string, c github.Comment) tea.Cmd {
 	m.recordComment(key, c)
+	delete(m.drafts, key)
 	m.editor.Reset()
 	m.editor.Blur()
 	m.status = "commented"

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/trepidity/gh-triage/internal/github"
 	"github.com/trepidity/gh-triage/internal/ui"
 )
 
@@ -181,6 +182,42 @@ func TestHungRequest_times_out_and_frees_the_ui(t *testing.T) {
 	m = press(t, m, "x", "c")
 	if !strings.HasPrefix(header(m), "o/r#2 ") {
 		t.Fatalf("UI still stuck after timeout; header = %q", header(m))
+	}
+}
+
+// Protects (spec test 6, M8): esc in the comment editor keeps the draft for that issue,
+// and a successful post clears it so the next comment starts empty.
+func TestCommentDraft_survives_esc_and_clears_after_posting(t *testing.T) {
+	f := threeIssues(t)
+	m := start(t, f, repoOpts)
+
+	m = press(t, m, "enter", "c", "half a thought", "esc", "c")
+	if !strings.Contains(text(m), "half a thought") {
+		t.Fatalf("draft lost after esc:\n%s", text(m))
+	}
+	m = press(t, m, "ctrl+s", "c", "second", "ctrl+s")
+	want := []string{"o/r#1 half a thought", "o/r#1 second"}
+	if !reflect.DeepEqual(f.comments, want) {
+		t.Fatalf("comments = %q, want %q", f.comments, want)
+	}
+}
+
+// Protects (Review Focus 2, M4): a failed comment load says how to retry instead of
+// "Loading comments…" forever, and R loads them.
+func TestCommentLoadFailure_offers_retry_and_R_recovers(t *testing.T) {
+	f := threeIssues(t)
+	f.loadErr = errors.New("502 bad gateway")
+	m := start(t, f, repoOpts)
+
+	m = press(t, m, "enter")
+	if v := text(m); strings.Contains(v, "Loading comments") || !strings.Contains(v, "press R to retry") {
+		t.Fatalf("after failed load:\n%s", v)
+	}
+	f.loadErr = nil
+	f.thread = []github.Comment{{Author: "bob", Body: "first reply"}}
+	m = press(t, m, "R")
+	if !strings.Contains(text(m), "first reply") {
+		t.Fatalf("after R:\n%s", text(m))
 	}
 }
 
