@@ -351,6 +351,7 @@ func (m *Model) keyIssue(k tea.KeyMsg) tea.Cmd {
 }
 
 func (m *Model) moveCursor(to int) {
+	m.resume = nil // the user chose where to be; a late page must not move them
 	if to >= 0 && to < len(m.visible) {
 		m.cursor = to
 	}
@@ -521,6 +522,7 @@ func (m *Model) applyFilter() {
 // openIssue shows visible row vi and loads its comments, prefetching the next issue's.
 func (m *Model) openIssue(vi int) tea.Cmd {
 	m.cursor = vi
+	m.resume = nil // the user chose where to be; a late page must not move them
 	if is, ok := m.current(); ok {
 		m.positions[m.query] = config.Position{Key: is.Key(), CreatedAt: is.CreatedAt}
 	}

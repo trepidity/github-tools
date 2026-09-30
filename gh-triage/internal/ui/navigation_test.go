@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/trepidity/gh-triage/internal/ui"
 )
 
@@ -91,5 +92,17 @@ func TestFilteredQueue_keeps_loading_pages_past_the_last_match(t *testing.T) {
 	m = press(t, m, "/", "crash", "enter", "enter", "n")
 	if !strings.HasPrefix(header(m), "o/r#140 ") {
 		t.Fatalf("n from the only loaded match: header %q, want o/r#140; searches=%d", header(m), f.searches)
+	}
+}
+
+// Protects (final review): on an 80-column terminal the issue help still shows how to get
+// back to the list.
+func TestIssueHelp_shows_esc_list_on_an_80_column_terminal(t *testing.T) {
+	m := start(t, &fakeClient{open: issues(t, 1, 3)}, repoOpts)
+	m = send(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	v := lines(press(t, m, "enter"))
+	if help := v[len(v)-1]; !strings.Contains(help, "esc list") {
+		t.Fatalf("help line = %q", help)
 	}
 }
