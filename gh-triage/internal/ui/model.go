@@ -47,6 +47,8 @@ const (
 // before the next search page is requested.
 const prefetchWindow = 10
 
+const loadingMoreStatus = "loading more issues…"
+
 type Model struct {
 	client        github.Client
 	opts          Options
@@ -275,7 +277,7 @@ func (m *Model) keyIssue(k tea.KeyMsg) tea.Cmd {
 			return m.openIssue(m.cursor + 1)
 		}
 		if m.hasMore || m.loadingPage {
-			m.status = "loading more issues…"
+			m.status = loadingMoreStatus
 			return m.maybeFetchMore()
 		}
 		m.status = "end of queue"
@@ -360,10 +362,10 @@ func (m *Model) fetchPage() tea.Cmd {
 	}
 }
 
-// maybeFetchMore requests the next page when the cursor nears the end of what is loaded.
-// At most one page request is in flight at a time.
+// maybeFetchMore requests the next page when the cursor nears the last visible row, so a
+// filter that matches little keeps pulling pages. At most one request is in flight.
 func (m *Model) maybeFetchMore() tea.Cmd {
-	if !m.hasMore || m.loadingPage || m.currentIndex() < len(m.issues)-prefetchWindow {
+	if !m.hasMore || m.loadingPage || m.cursor < len(m.visible)-prefetchWindow {
 		return nil
 	}
 	m.loadingPage = true
@@ -375,6 +377,9 @@ func (m *Model) onSearchLoaded(msg searchLoadedMsg) tea.Cmd {
 		return nil
 	}
 	m.loadingPage = false
+	if m.status == loadingMoreStatus {
+		m.status = ""
+	}
 	if msg.err != nil {
 		m.status = "search failed: " + msg.err.Error()
 		return nil
