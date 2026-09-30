@@ -20,7 +20,7 @@ var (
 const (
 	listHelp    = "j/k move · enter open · / filter · s search · r repos · q quit"
 	issueHelp   = "n/p next/prev · c comment · x close · X comment+close · o browser · r repos · esc list"
-	commentHelp = "ctrl+s send · esc cancel"
+	commentHelp = "ctrl+s send · ctrl+t template · ctrl+e $EDITOR · esc cancel"
 )
 
 func (m Model) View() string {
@@ -131,8 +131,6 @@ func (m Model) footer(help string) string {
 		line = statusStyle.Render(m.status)
 	case m.mode == modeFilter:
 		line = m.filter.View()
-	case m.mode == modeSearch:
-		line = m.prompt.View()
 	case m.mode == modeCloseReason:
 		line = statusStyle.Render("close as: c completed · n not planned · esc cancel")
 	case m.mode == modeComment && m.status == "":

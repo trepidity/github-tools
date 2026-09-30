@@ -87,6 +87,10 @@ func (m *Model) keyComment(k tea.KeyMsg) tea.Cmd {
 		m.mode = modeNone
 		m.editor.Blur()
 		return nil
+	case "ctrl+t":
+		return m.openTemplates()
+	case "ctrl+e":
+		return m.openEditor()
 	case "ctrl+s":
 		body := strings.TrimSpace(m.editor.Value())
 		if body == "" {

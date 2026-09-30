@@ -14,6 +14,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/cli/go-gh/v2/pkg/browser"
+	"github.com/trepidity/gh-triage/internal/config"
 	"github.com/trepidity/gh-triage/internal/github"
 )
 
@@ -24,7 +25,9 @@ type Options struct {
 	RepoCache string        // repo-list cache file; empty disables caching
 	Style     string        // glamour style: "dark", "light" or "notty" (default)
 
-	ActionTimeout time.Duration // limit for each GitHub request; zero means defaultActionTimeout
+	ActionTimeout time.Duration  // limit for each GitHub request; zero means defaultActionTimeout
+	Queries       []config.Named // saved searches, listed first when s is pressed
+	Templates     []config.Named // reply templates, inserted with ctrl+t
 }
 
 type screen int
@@ -39,7 +42,6 @@ type mode int
 const (
 	modeNone mode = iota
 	modeFilter
-	modeSearch
 	modeComment
 	modeCloseReason
 	modePicker
@@ -93,7 +95,6 @@ type Model struct {
 	busy              bool              // a GitHub write is in flight; keys are ignored
 	tally             [numActions]int
 
-	prompt       textinput.Model
 	pk           picker
 	repos        []github.Repo // every accessible repo; nil until the cache or API answers
 	reposFetched bool          // ListRepos already requested this session
@@ -123,7 +124,7 @@ func New(client github.Client, opts Options) Model {
 		stateOverride: map[string]string{}, comments: map[string][]github.Comment{}, commentsLoading: map[string]bool{},
 		drafts: map[string]string{}, commentsErr: map[string]bool{},
 		labelOpts: map[github.Repo][]string{}, assigneeOpts: map[github.Repo][]string{},
-		filter: newInput("/ "), prompt: newInput("search: "),
+		filter:   newInput("/ "),
 		viewport: viewport.New(80, 20),
 		editor:   newEditor(),
 	}
@@ -179,6 +180,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = string(msg)
 	case actionDoneMsg:
 		cmd = m.onActionDone(msg)
+	case editorDoneMsg:
+		m.onEditorDone(msg)
 	case optionsLoadedMsg:
 		m.onOptionsLoaded(msg)
 	case reposLoadedMsg:
@@ -200,8 +203,6 @@ func (m *Model) onKey(k tea.KeyMsg) tea.Cmd {
 	switch m.mode {
 	case modeFilter:
 		return m.keyFilter(k)
-	case modeSearch:
-		return m.keySearch(k)
 	case modeComment:
 		return m.keyComment(k)
 	case modeCloseReason:
@@ -234,9 +235,7 @@ func (m *Model) keyList(k tea.KeyMsg) tea.Cmd {
 		m.mode = modeFilter
 		return m.filter.Focus()
 	case "s":
-		m.mode = modeSearch
-		m.prompt.SetValue("")
-		return m.prompt.Focus()
+		return m.openQueries()
 	}
 	return nil
 }
@@ -257,26 +256,6 @@ func (m *Model) keyFilter(k tea.KeyMsg) tea.Cmd {
 	var cmd tea.Cmd
 	m.filter, cmd = m.filter.Update(k)
 	m.applyFilter()
-	return cmd
-}
-
-func (m *Model) keySearch(k tea.KeyMsg) tea.Cmd {
-	switch k.String() {
-	case "enter":
-		q := strings.TrimSpace(m.prompt.Value())
-		m.prompt.Blur()
-		m.mode = modeNone
-		if q == "" {
-			return nil
-		}
-		return m.startSearch(q)
-	case "esc":
-		m.prompt.Blur()
-		m.mode = modeNone
-		return nil
-	}
-	var cmd tea.Cmd
-	m.prompt, cmd = m.prompt.Update(k)
 	return cmd
 }
 

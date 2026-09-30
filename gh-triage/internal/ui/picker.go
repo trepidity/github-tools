@@ -18,6 +18,8 @@ const (
 	pickLabels                      // set the current issue's labels
 	pickAssignees                   // set the current issue's assignees
 	pickReaction                    // react to the current issue
+	pickQuery                       // run a saved or typed search
+	pickTemplate                    // insert a reply template into the comment
 )
 
 type pickerItem struct {
@@ -182,6 +184,15 @@ func (m *Model) picked(kind pickerKind, chosen []string, typed string) tea.Cmd {
 				return m.react(r)
 			}
 		}
+		return nil
+	case pickQuery:
+		q := typed
+		if len(chosen) > 0 {
+			q = chosen[0]
+		}
+		return m.startSearch(q)
+	case pickTemplate:
+		m.editor.InsertString(chosen[0])
 		return nil
 	}
 	panic(fmt.Sprintf("unknown pickerKind %d", int(kind)))

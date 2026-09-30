@@ -76,6 +76,8 @@ func run() error {
 		Pins:      pins,
 		RepoCache: filepath.Join(home, ".cache", "gh-triage", "repos.json"),
 		Style:     style,
+		Queries:   cfg.Queries,
+		Templates: cfg.Templates,
 	})
 	_, err = tea.NewProgram(model, tea.WithAltScreen()).Run()
 	return err
