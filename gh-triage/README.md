@@ -4,13 +4,32 @@ Work through GitHub issues one at a time from the terminal, without losing your 
 
 ## Install
 
+Requires [Go](https://go.dev/dl/) and the [GitHub CLI](https://cli.github.com/), logged in with `gh auth login`.
+gh-triage uses that session, so there is no separate login.
+
 ```bash
-cd gh-triage
+git clone git@github.com:trepidity/github-tools.git
+cd github-tools/gh-triage
 go build -o gh-triage .
 gh extension install .
 ```
 
-Uses your existing `gh auth login` session.
+`gh extension install .` links this folder, so `gh triage` runs the `gh-triage` binary built here.
+(`gh extension install trepidity/github-tools` does not work: gh only installs remote extensions
+from repos whose names start with `gh-`.)
+
+### Update
+
+```bash
+git pull
+go build -o gh-triage .
+```
+
+### Uninstall
+
+```bash
+gh extension remove triage
+```
 
 ## Use
 
