@@ -18,8 +18,8 @@ var (
 )
 
 const (
-	listHelp    = "j/k move · enter open · / filter · s search · r repos · q quit"
-	issueHelp   = "n/p next/prev · c comment · x close · X comment+close · o browser · r repos · esc list"
+	listHelp    = "j/k move · enter open · / filter · s search · r repos · u undo close · q quit"
+	issueHelp   = "n/p next/prev · c comment · x close · X comment+close · d dup · l labels · a/A assign · + react · L lock · t transfer · u undo · o browser · r repos · esc list"
 	commentHelp = "ctrl+s send · ctrl+t template · ctrl+e $EDITOR · esc cancel"
 )
 

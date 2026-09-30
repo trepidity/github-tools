@@ -41,17 +41,25 @@ gh triage --query "org:foo assignee:@me" # any GitHub issue search
 
 | Screen | Keys |
 |---|---|
-| List | `j/k` move · `enter` open · `/` filter · `s` new search · `r` repos · `q` quit |
-| Issue | `n/p` next/prev · `c` comment · `x` close · `X` comment+close · `o` browser · `r` repos · `esc` list |
-| Comment | `ctrl+s` send · `esc` cancel |
+| List | `j/k` move · `enter` open · `/` filter · `s` search (saved or typed) · `r` repos · `u` undo last close · `q` quit |
+| Issue | `n/p` next/prev · `c` comment · `x` close · `X` comment+close · `d` close as duplicate · `l` labels · `a` assign me · `A` assignees · `+` react · `L` lock/unlock · `t` transfer · `u` undo last close · `R` retry comments · `o` browser · `r` repos · `esc` list |
+| Comment | `ctrl+s` send · `ctrl+t` insert template · `ctrl+e` edit in `$EDITOR` · `esc` close (draft kept) |
 | Close | `c` completed · `n` not planned · `esc` cancel |
+| Pickers | type to filter · `↑/↓` move · `space` toggle (labels, assignees) · `enter` choose · `esc` cancel |
 
-## Pins
+Quitting prints a one-line summary (`closed 12 · commented 5 · …`). Reopening the same repo or
+query puts you back on the last issue you viewed.
+
+## Config
 
 `~/.config/gh-triage/config.yml`:
 
 ```yaml
-pins:
+pins:                 # listed first in the repo switcher
   - owner/repo
-  - other-org/other-repo
+queries:              # listed first when you press s, in this order
+  mine: "assignee:@me is:open"
+  stale: "org:foo is:open updated:<2026-01-01"
+templates:            # ctrl+t in the comment editor
+  repro: "Thanks! Could you share steps to reproduce?"
 ```

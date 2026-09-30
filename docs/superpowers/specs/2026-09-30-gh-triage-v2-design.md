@@ -1,7 +1,7 @@
 # gh-triage v2 — Design
 
 Date: 2026-09-30
-Status: Approved in conversation, pending spec review
+Status: Implemented
 Builds on: `2026-09-30-gh-triage-design.md` (v1). Everything in v1 still holds unless changed here.
 
 ## Intent
