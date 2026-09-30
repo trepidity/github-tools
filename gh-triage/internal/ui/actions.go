@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/cursor"
 	"github.com/charmbracelet/bubbles/textarea"
@@ -25,21 +26,23 @@ func newEditor() textarea.Model {
 // actionDoneMsg carries a finished action back to the UI goroutine.
 type actionDoneMsg struct {
 	label string
+	key   string               // the issue acted on
 	apply func(*Model) tea.Cmd // what GitHub confirmed; nil if nothing
 	err   error                // what failed; nil if nothing
 }
 
-// run starts an action: it sets busy, applies the request timeout and calls do off the UI
-// goroutine. do returns apply for whatever GitHub confirmed and err for whatever failed —
-// both may be set (partial success). apply is the only place an action changes state.
-func (m *Model) run(label string, do func(ctx context.Context) (func(*Model) tea.Cmd, error)) tea.Cmd {
+// run starts an action on issue key: it sets busy, applies the request timeout and calls
+// do off the UI goroutine. do returns apply for whatever GitHub confirmed and err for
+// whatever failed — both may be set (partial success). apply is the only place an action
+// changes state.
+func (m *Model) run(label, key string, do func(ctx context.Context) (func(*Model) tea.Cmd, error)) tea.Cmd {
 	m.busy, m.status = true, label+"…"
 	timeout := m.timeout()
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 		apply, err := do(ctx)
-		return actionDoneMsg{label: label, apply: apply, err: err}
+		return actionDoneMsg{label: label, key: key, apply: apply, err: err}
 	}
 }
 
@@ -47,6 +50,7 @@ func (m *Model) onActionDone(msg actionDoneMsg) tea.Cmd {
 	m.busy, m.status = false, ""
 	var cmd tea.Cmd
 	if msg.apply != nil {
+		m.touched[msg.key] = time.Now() // the change bumped the issue's updated time; the watch feed skips it
 		cmd = msg.apply(m)
 	}
 	if msg.err != nil {
@@ -99,7 +103,7 @@ func (m *Model) keyComment(k tea.KeyMsg) tea.Cmd {
 		}
 		is, _ := m.current()
 		client := m.client
-		return m.run("comment", func(ctx context.Context) (func(*Model) tea.Cmd, error) {
+		return m.run("comment", is.Key(), func(ctx context.Context) (func(*Model) tea.Cmd, error) {
 			c, err := client.AddComment(ctx, is.Repo, is.Number, body)
 			if err != nil {
 				return nil, err // the draft stays in the editor
@@ -168,7 +172,7 @@ func (m *Model) keyCloseReason(k tea.KeyMsg) tea.Cmd {
 	m.mode = modeNone
 	is, _ := m.current()
 	client := m.client
-	return m.run("close", func(ctx context.Context) (func(*Model) tea.Cmd, error) {
+	return m.run("close", is.Key(), func(ctx context.Context) (func(*Model) tea.Cmd, error) {
 		if err := client.CloseIssue(ctx, is.Repo, is.Number, reason); err != nil {
 			return nil, err
 		}

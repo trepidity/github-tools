@@ -77,13 +77,14 @@ func run() error {
 	}
 	positionsPath := filepath.Join(home, ".cache", "gh-triage", "positions.json")
 	model := ui.New(github.NewREST(rest, gql), ui.Options{
-		Query:     q,
-		Pins:      pins,
-		RepoCache: filepath.Join(home, ".cache", "gh-triage", "repos.json"),
-		Style:     style,
-		Queries:   cfg.Queries,
-		Templates: cfg.Templates,
-		Positions: config.ReadPositions(positionsPath),
+		Query:         q,
+		Pins:          pins,
+		RepoCache:     filepath.Join(home, ".cache", "gh-triage", "repos.json"),
+		Style:         style,
+		Queries:       cfg.Queries,
+		Templates:     cfg.Templates,
+		Positions:     config.ReadPositions(positionsPath),
+		WatchInterval: cfg.Watch.PollInterval,
 	})
 	final, err := tea.NewProgram(model, tea.WithAltScreen()).Run()
 	if err != nil {

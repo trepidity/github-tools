@@ -113,7 +113,7 @@ func (m *Model) onOptionsLoaded(msg optionsLoadedMsg) {
 func (m *Model) setLabels(want []string) tea.Cmd {
 	is, _ := m.current()
 	client := m.client
-	return m.run("label", func(ctx context.Context) (func(*Model) tea.Cmd, error) {
+	return m.run("label", is.Key(), func(ctx context.Context) (func(*Model) tea.Cmd, error) {
 		got, err := client.SetLabels(ctx, is.Repo, is.Number, want)
 		if err != nil {
 			return nil, err
@@ -133,7 +133,7 @@ func (m *Model) setLabels(want []string) tea.Cmd {
 func (m *Model) setAssignees(want []string) tea.Cmd {
 	is, _ := m.current()
 	client := m.client
-	return m.run("assign", func(ctx context.Context) (func(*Model) tea.Cmd, error) {
+	return m.run("assign", is.Key(), func(ctx context.Context) (func(*Model) tea.Cmd, error) {
 		got, err := client.SetAssignees(ctx, is.Repo, is.Number, want)
 		if err != nil {
 			return nil, err
@@ -149,7 +149,7 @@ func (m *Model) toggleSelf() tea.Cmd {
 		return nil
 	}
 	client, me := m.client, m.me
-	return m.run("assign", func(ctx context.Context) (func(*Model) tea.Cmd, error) {
+	return m.run("assign", is.Key(), func(ctx context.Context) (func(*Model) tea.Cmd, error) {
 		if me == "" {
 			var err error
 			if me, err = client.CurrentUser(ctx); err != nil {
@@ -218,7 +218,7 @@ func (m *Model) openReactions() tea.Cmd {
 func (m *Model) react(r github.Reaction) tea.Cmd {
 	is, _ := m.current()
 	client := m.client
-	return m.run("react", func(ctx context.Context) (func(*Model) tea.Cmd, error) {
+	return m.run("react", is.Key(), func(ctx context.Context) (func(*Model) tea.Cmd, error) {
 		if err := client.AddReaction(ctx, is.Repo, is.Number, r); err != nil {
 			return nil, err
 		}

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func writeConfig(t *testing.T, body string) string {
@@ -42,5 +43,20 @@ func TestLoad_rejects_empty_or_malformed_entries(t *testing.T) {
 		if _, err := Load(writeConfig(t, body)); err == nil {
 			t.Errorf("Load accepted:\n%s", body)
 		}
+	}
+}
+
+// Protects: polling faster than every 30s would burn the search rate limit (30/min) that
+// paging and switching queries share, so a shorter or unparseable interval is a startup
+// error; a valid one is read.
+func TestLoad_reads_the_poll_interval_and_rejects_one_under_30s(t *testing.T) {
+	for _, bad := range []string{"10s", "soon", "-1m"} {
+		if _, err := Load(writeConfig(t, "watch:\n  poll_interval: "+bad+"\n")); err == nil {
+			t.Errorf("Load accepted poll_interval %q", bad)
+		}
+	}
+	c, err := Load(writeConfig(t, "watch:\n  poll_interval: 2m\n"))
+	if err != nil || c.Watch.PollInterval != 2*time.Minute {
+		t.Fatalf("poll_interval 2m: got %v, %v", c.Watch.PollInterval, err)
 	}
 }

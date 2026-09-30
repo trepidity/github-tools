@@ -127,6 +127,29 @@ func TestSearchIssues_continues_before_the_oldest_loaded_issue_and_stops_on_a_sh
 	}
 }
 
+// Protects: the watch feed pages forward through update time from the given instant,
+// oldest first, and reads each issue's update time.
+func TestSearchUpdatedIssues_pages_forward_from_since_oldest_update_first(t *testing.T) {
+	item := `{"number":3,"title":"t","state":"open","repository_url":"https://api.github.com/repos/o/r","user":{"login":"a"},"html_url":"https://github.com/o/r/issues/3","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-03T00:00:00Z"}`
+	var got []string
+	g, _ := newTestREST(t, func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		got = append(got, q.Get("q")+" sort="+q.Get("sort")+" order="+q.Get("order"))
+		fmt.Fprintf(w, `{"total_count":100,"items":[%s]}`, strings.TrimSuffix(strings.Repeat(item+",", 100), ","))
+	})
+	since := time.Date(2026, 1, 2, 3, 4, 5, 0, time.FixedZone("CST", -6*3600))
+	issues, more, err := g.SearchUpdatedIssues(context.Background(), "repo:o/r is:issue", since)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"repo:o/r is:issue updated:>=2026-01-02T09:04:05Z sort=updated order=asc"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("request = %q, want %q", got, want)
+	}
+	if !more || !issues[0].UpdatedAt.Equal(time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("more=%v updated=%v", more, issues[0].UpdatedAt)
+	}
+}
+
 func TestListRepos_follows_link_pagination_past_the_first_100(t *testing.T) {
 	g, _ := newTestREST(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("page") == "2" {

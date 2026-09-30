@@ -21,7 +21,13 @@ type Config struct {
 	Pins      []string
 	Queries   []Named
 	Templates []Named
+	Watch     Watch
 }
+
+// Watch configures optional foreground issue polling. A zero interval disables it.
+type Watch struct{ PollInterval time.Duration }
+
+const MinPollInterval = 30 * time.Second
 
 // Load reads path. A missing file is not an error: it means no pins, queries or templates.
 func Load(path string) (Config, error) {
@@ -36,11 +42,23 @@ func Load(path string) (Config, error) {
 		Pins      []string  `yaml:"pins"`
 		Queries   yaml.Node `yaml:"queries"` // yaml.Node keeps map order; a Go map would not
 		Templates yaml.Node `yaml:"templates"`
+		Watch     struct {
+			PollInterval string `yaml:"poll_interval"`
+		} `yaml:"watch"`
 	}
 	if err := yaml.Unmarshal(b, &raw); err != nil {
 		return Config{}, fmt.Errorf("%s: %w", path, err)
 	}
 	c := Config{Pins: raw.Pins}
+	if raw.Watch.PollInterval != "" {
+		c.Watch.PollInterval, err = time.ParseDuration(raw.Watch.PollInterval)
+		if err != nil {
+			return Config{}, fmt.Errorf("%s: watch.poll_interval: invalid duration %q: %w", path, raw.Watch.PollInterval, err)
+		}
+		if c.Watch.PollInterval < MinPollInterval {
+			return Config{}, fmt.Errorf("%s: watch.poll_interval: must be at least %s", path, MinPollInterval)
+		}
+	}
 	if c.Queries, err = namedList(raw.Queries, "queries"); err != nil {
 		return Config{}, fmt.Errorf("%s: %w", path, err)
 	}

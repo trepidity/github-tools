@@ -31,6 +31,9 @@ type Options struct {
 	Queries       []config.Named             // saved searches, listed first when s is pressed
 	Templates     []config.Named             // reply templates, inserted with ctrl+t
 	Positions     map[string]config.Position // last viewed issue by normalized query
+	WatchInterval time.Duration              // zero disables foreground polling
+	// Tick schedules the next poll; tea.Tick when nil. Tests substitute one they fire by hand.
+	Tick func(time.Duration, func(time.Time) tea.Msg) tea.Cmd
 }
 
 type screen int
@@ -75,9 +78,22 @@ type Model struct {
 	resume        *config.Position           // where the current query should land while pages load
 	gen           int                        // bumped on every new search so late pages from an old one are dropped
 	issues        []github.Issue
+	byKey         map[string]int    // issue key → index in issues
+	issueOrder    []int             // presentation order: active issues first, then the created-time queue
+	pageOrder     []int             // issues reached through created-time paging, in that order, for resume
+	pageKeys      map[string]bool   // keys paging has reached; a poll may have added the issue first
+	pageBefore    time.Time         // created-time keyset cursor for the next page
 	stateOverride map[string]string // key → "open"/"closed" confirmed this session; wins over search results (the index lags both ways)
 	hasMore       bool
 	loadingPage   bool
+
+	// watching (watch.go)
+	watchFrom     time.Time            // when the current query opened; only later activity is surfaced
+	watchSince    time.Time            // newest update the feed has returned for the current query
+	activity      map[string]time.Time // key → latest activity by others since the query opened; these rows lead
+	unseen        map[string]bool      // activity not yet viewed, marked ● in the list
+	touched       map[string]time.Time // key → when a change of ours last landed; the feed skips updates up to then
+	watchFailures int                  // consecutive failed polls; each doubles the interval
 
 	// list screen
 	filter  textinput.Model
@@ -136,7 +152,7 @@ func New(client github.Client, opts Options) Model {
 	m := Model{
 		client: client, opts: opts, width: 80, height: 24,
 		stateOverride: map[string]string{}, comments: map[string][]github.Comment{}, commentsLoading: map[string]bool{},
-		drafts: map[string]string{}, commentsErr: map[string]bool{},
+		touched: map[string]time.Time{}, drafts: map[string]string{}, commentsErr: map[string]bool{},
 		ref: newInput("duplicate of: "), dupCommented: map[string]string{}, transferred: map[string]string{},
 		labelOpts: map[github.Repo][]string{}, labelColors: map[string]string{}, assigneeOpts: map[github.Repo][]string{},
 		filter:   newInput("/ "),
@@ -153,6 +169,7 @@ func New(client github.Client, opts Options) Model {
 	} else {
 		m.initCmd = m.openSwitcher()
 	}
+	m.initCmd = tea.Batch(m.initCmd, m.scheduleWatch())
 	return m
 }
 
@@ -217,6 +234,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshIssue()
 	case searchLoadedMsg:
 		cmd = m.onSearchLoaded(msg)
+	case watchTickMsg:
+		cmd = m.onWatchTick()
+	case watchLoadedMsg:
+		cmd = m.onWatchLoaded(msg)
 	case commentsLoadedMsg:
 		m.onCommentsLoaded(msg)
 	case statusMsg:
@@ -432,12 +453,22 @@ func firstLine(s string) string {
 }
 
 func (m *Model) indexOf(key string) int {
-	for i, is := range m.issues {
-		if is.Key() == key {
-			return i
-		}
+	if i, ok := m.byKey[key]; ok {
+		return i
 	}
 	return -1
+}
+
+// appendIssue adds an issue to the backing queue, at the end of the presentation order.
+func (m *Model) appendIssue(is github.Issue) int {
+	i := len(m.issues)
+	m.issues = append(m.issues, is)
+	m.byKey[is.Key()] = i
+	m.issueOrder = append(m.issueOrder, i)
+	for name, c := range is.LabelColors {
+		m.labelColors[strings.ToLower(name)] = c
+	}
+	return i
 }
 
 // startSearch replaces the queue with the results of q.
@@ -448,7 +479,12 @@ func (m *Model) startSearch(q string) tea.Cmd {
 	if p, ok := m.positions[m.query]; ok {
 		m.resume = &p
 	}
-	m.issues, m.visible = nil, nil
+	m.issues, m.issueOrder, m.pageOrder, m.visible = nil, nil, nil, nil
+	m.byKey, m.pageKeys = map[string]int{}, map[string]bool{}
+	m.pageBefore = time.Time{}
+	m.watchFrom = time.Now()
+	m.watchSince = m.watchFrom
+	m.activity, m.unseen = map[string]time.Time{}, map[string]bool{}
 	m.cursor, m.offset = 0, 0
 	m.hasMore, m.loadingPage = false, true
 	m.filter.SetValue("")
@@ -459,10 +495,7 @@ func (m *Model) startSearch(q string) tea.Cmd {
 // fetchPage loads the issues after the oldest one already loaded (results are newest first).
 func (m *Model) fetchPage() tea.Cmd {
 	client, q, gen := m.client, m.query, m.gen
-	var before time.Time
-	if n := len(m.issues); n > 0 {
-		before = m.issues[n-1].CreatedAt
-	}
+	before := m.pageBefore
 	return m.fetch(func(ctx context.Context) tea.Msg {
 		issues, hasMore, err := client.SearchIssues(ctx, q, before)
 		return searchLoadedMsg{gen: gen, issues: issues, hasMore: hasMore, err: err}
@@ -492,20 +525,22 @@ func (m *Model) onSearchLoaded(msg searchLoadedMsg) tea.Cmd {
 		m.resume = nil
 		return nil
 	}
-	seen := make(map[string]bool, len(m.issues)+len(msg.issues))
-	for _, is := range m.issues {
-		seen[is.Key()] = true
+	if n := len(msg.issues); n > 0 {
+		m.pageBefore = msg.issues[n-1].CreatedAt
 	}
-	added := 0
+	added := 0 // new to paging, even if a poll surfaced the issue first
 	for _, is := range msg.issues {
-		if !seen[is.Key()] { // created:<= repeats issues sharing the boundary timestamp
-			seen[is.Key()] = true
-			m.issues = append(m.issues, is)
-			added++
-			for name, c := range is.LabelColors {
-				m.labelColors[strings.ToLower(name)] = c
-			}
+		key := is.Key()
+		if m.pageKeys[key] { // created:<= repeats issues sharing the boundary timestamp
+			continue
 		}
+		m.pageKeys[key] = true
+		added++
+		i, ok := m.byKey[key]
+		if !ok {
+			i = m.appendIssue(is)
+		}
+		m.pageOrder = append(m.pageOrder, i)
 	}
 	m.hasMore = msg.hasMore && added > 0 // a page of only repeats would request itself forever
 	m.applyFilter()
@@ -519,8 +554,13 @@ func (m *Model) onSearchLoaded(msg searchLoadedMsg) tea.Cmd {
 // issue once the queue has passed it (it was closed since); otherwise it loads another page.
 func (m *Model) seekResume() tea.Cmd {
 	target := *m.resume
+	row := make(map[int]int, len(m.visible)) // issue index → visible row
 	for vi, i := range m.visible {
-		if is := m.issues[i]; is.Key() == target.Key || is.CreatedAt.Before(target.CreatedAt) {
+		row[i] = vi
+	}
+	for _, i := range m.pageOrder { // created order, so the saved issue comes before any older one
+		vi, shown := row[i]
+		if is := m.issues[i]; shown && (is.Key() == target.Key || is.CreatedAt.Before(target.CreatedAt)) {
 			m.cursor, m.resume = vi, nil
 			return nil
 		}
@@ -542,7 +582,8 @@ func (m *Model) applyFilter() {
 	f := strings.ToLower(m.filter.Value())
 	m.visible = m.visible[:0]
 	m.cursor = 0
-	for i, is := range m.issues {
+	for _, i := range m.issueOrder {
+		is := m.issues[i]
 		if f != "" && !strings.Contains(strings.ToLower(is.Key()+" "+is.Title+" "+is.Author), f) {
 			continue
 		}
@@ -559,6 +600,7 @@ func (m *Model) openIssue(vi int) tea.Cmd {
 	m.resume = nil // the user chose where to be; a late page must not move them
 	if is, ok := m.current(); ok {
 		m.positions[m.query] = config.Position{Key: is.Key(), CreatedAt: is.CreatedAt}
+		delete(m.unseen, is.Key())
 	}
 	m.screen, m.mode, m.status = screenIssue, modeNone, ""
 	m.refreshIssue()

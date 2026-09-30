@@ -196,6 +196,8 @@ func (m Model) row(vi int, l rowLayout) string {
 		state = "→ moved  "
 	case m.isClosed(is):
 		state = "✓ closed  "
+	case m.unseen[is.Key()]:
+		state = "● " // activity since the query opened, not yet viewed
 	}
 	cols := []string{
 		marker + padLeft(m.number(is, l.multiRepo), l.num),

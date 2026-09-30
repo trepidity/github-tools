@@ -62,4 +62,23 @@ queries:              # listed first when you press s, in this order
   stale: "org:foo is:open updated:<2026-01-01"
 templates:            # ctrl+t in the comment editor
   repro: "Thanks! Could you share steps to reproduce?"
+watch:                # optional; absent or omitted interval disables polling
+  poll_interval: 1m   # minimum 30s
 ```
+
+When enabled, `gh triage` polls the current query's update feed while it is open. Issues with
+activity since you opened the query move above the created-time queue, most recent first, and
+are marked `●` until you view them. Your own comments, labels, closes and other changes do not
+count as activity, and a poll never overwrites an edit you just made with an older copy from
+GitHub's search index. If the issue on screen changes, its thread reloads. The selected issue
+stays selected.
+
+Each poll reads only what changed since the last one (re-reading two minutes back, because the
+search index can list updates out of order), so a burst larger than one search page is read in
+full. Failed polls back off, doubling the interval up to 16×, and recover on the next success.
+Polling stops when the program exits; there is no daemon or webhook. Paging and the resume
+position still follow creation time.
+
+Activity is judged against your computer's clock, allowing ten seconds of drift from GitHub's.
+An issue that stops matching the query (closed by someone else under `is:open`, say) is not
+removed from the list.

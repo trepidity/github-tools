@@ -38,6 +38,7 @@ type Issue struct {
 	Locked      bool
 	Comments    int
 	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 // Key identifies an issue across repos, e.g. "cli/cli#123".
@@ -75,6 +76,10 @@ type Client interface {
 	// SearchIssues returns the newest matching issues created at or before `before`
 	// (zero = no bound). hasMore reports that older matches may remain.
 	SearchIssues(ctx context.Context, query string, before time.Time) (issues []Issue, hasMore bool, err error)
+	// SearchUpdatedIssues returns matching issues updated at or after since, oldest update
+	// first, so the caller pages forward by passing the last one's UpdatedAt. hasMore
+	// reports a full page.
+	SearchUpdatedIssues(ctx context.Context, query string, since time.Time) (issues []Issue, hasMore bool, err error)
 	GetComments(ctx context.Context, repo Repo, number int) ([]Comment, error)
 	AddComment(ctx context.Context, repo Repo, number int, body string) (Comment, error)
 	CloseIssue(ctx context.Context, repo Repo, number int, reason CloseReason) error

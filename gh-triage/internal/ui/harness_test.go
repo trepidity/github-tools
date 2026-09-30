@@ -38,16 +38,41 @@ type fakeClient struct {
 	reopenErr  error
 	locks      []string // "key lock <reason>" or "key unlock"
 	transfers  []string // "key → owner/repo"
+	polls      int      // SearchUpdatedIssues calls
+	pollErr    error    // SearchUpdatedIssues fails with this
 }
 
-func (f *fakeClient) SearchIssues(_ context.Context, _ string, before time.Time) ([]github.Issue, bool, error) {
+// matches scopes a repo: query to that repo, as GitHub would; other queries match everything.
+func matches(q string, is github.Issue) bool {
+	return !strings.Contains(q, "repo:") || strings.Contains(q+" ", "repo:"+is.Repo.String()+" ")
+}
+
+func (f *fakeClient) SearchIssues(_ context.Context, q string, before time.Time) ([]github.Issue, bool, error) {
 	f.searches++
 	var out []github.Issue
 	for _, is := range f.open {
-		if before.IsZero() || !is.CreatedAt.After(before) {
+		if matches(q, is) && (before.IsZero() || !is.CreatedAt.After(before)) {
 			out = append(out, is)
 		}
 	}
+	if len(out) > 100 {
+		return out[:100], true, nil
+	}
+	return out, false, nil
+}
+
+func (f *fakeClient) SearchUpdatedIssues(_ context.Context, q string, since time.Time) ([]github.Issue, bool, error) {
+	f.polls++
+	if f.pollErr != nil {
+		return nil, false, f.pollErr
+	}
+	var out []github.Issue
+	for _, is := range f.open {
+		if matches(q, is) && !is.UpdatedAt.Before(since) {
+			out = append(out, is)
+		}
+	}
+	slices.SortStableFunc(out, func(a, b github.Issue) int { return a.UpdatedAt.Compare(b.UpdatedAt) })
 	if len(out) > 100 {
 		return out[:100], true, nil
 	}
@@ -65,6 +90,11 @@ func (f *fakeClient) AddComment(_ context.Context, r github.Repo, n int, body st
 	f.comments = append(f.comments, fmt.Sprintf("%s#%d %s", r, n, body))
 	if f.commentErr != nil {
 		return github.Comment{}, f.commentErr
+	}
+	for i := range f.open {
+		if f.open[i].Repo == r && f.open[i].Number == n {
+			f.open[i].UpdatedAt = time.Now() // a comment is activity on the issue
+		}
 	}
 	return github.Comment{Author: "me", Body: body, CreatedAt: time.Now()}, nil
 }
@@ -156,7 +186,8 @@ func issues(t *testing.T, from, to int) []github.Issue {
 	newest := time.Now().Truncate(time.Second)
 	var out []github.Issue
 	for n := from; n <= to; n++ {
-		out = append(out, github.Issue{Repo: repo, Number: n, Title: fmt.Sprintf("Title %d", n), Author: "someone", State: "open", CreatedAt: newest.Add(-time.Duration(n) * time.Minute)})
+		created := newest.Add(-time.Duration(n) * time.Minute)
+		out = append(out, github.Issue{Repo: repo, Number: n, Title: fmt.Sprintf("Title %d", n), Author: "someone", State: "open", CreatedAt: created, UpdatedAt: created})
 	}
 	return out
 }

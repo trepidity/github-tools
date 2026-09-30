@@ -40,6 +40,7 @@ type apiIssue struct {
 	User          apiUser   `json:"user"`
 	Comments      int       `json:"comments"`
 	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 	NodeID        string    `json:"node_id"`
 	Assignees     []apiUser `json:"assignees"`
 	Locked        bool      `json:"locked"`
@@ -59,6 +60,24 @@ func (c apiComment) toComment() Comment {
 	return Comment{Author: c.User.Login, Body: c.Body, CreatedAt: c.CreatedAt}
 }
 
+func (it apiIssue) toIssue() (Issue, error) {
+	repo, err := repoFromURL(it.RepositoryURL)
+	if err != nil {
+		return Issue{}, err
+	}
+	labels := make([]string, 0, len(it.Labels))
+	colors := make(map[string]string, len(it.Labels))
+	for _, l := range it.Labels {
+		labels = append(labels, l.Name)
+		colors[l.Name] = l.Color
+	}
+	return Issue{
+		Repo: repo, Number: it.Number, Title: it.Title, Body: it.Body, Author: it.User.Login,
+		URL: it.HTMLURL, State: it.State, Labels: labels, LabelColors: colors, Comments: it.Comments,
+		CreatedAt: it.CreatedAt, UpdatedAt: it.UpdatedAt, NodeID: it.NodeID, Assignees: logins(it.Assignees), Locked: it.Locked,
+	}, nil
+}
+
 // SearchIssues pages by creation time rather than page number: page offsets shift as
 // issues are closed out of an is:open search, which would silently skip issues.
 func (g *REST) SearchIssues(ctx context.Context, query string, before time.Time) ([]Issue, bool, error) {
@@ -74,21 +93,34 @@ func (g *REST) SearchIssues(ctx context.Context, query string, before time.Time)
 	}
 	issues := make([]Issue, 0, len(resp.Items))
 	for _, it := range resp.Items {
-		repo, err := repoFromURL(it.RepositoryURL)
+		is, err := it.toIssue()
 		if err != nil {
 			return nil, false, err
 		}
-		labels := make([]string, 0, len(it.Labels))
-		colors := make(map[string]string, len(it.Labels))
-		for _, l := range it.Labels {
-			labels = append(labels, l.Name)
-			colors[l.Name] = l.Color
+		issues = append(issues, is)
+	}
+	return issues, len(resp.Items) == perPage, nil
+}
+
+// SearchUpdatedIssues pages forward through update time, the feed behind watching. Like
+// SearchIssues it is a keyset rather than page numbers, which also keeps it clear of
+// search's 1000-result cap.
+func (g *REST) SearchUpdatedIssues(ctx context.Context, query string, since time.Time) ([]Issue, bool, error) {
+	query += " updated:>=" + since.UTC().Format(time.RFC3339)
+	path := fmt.Sprintf("search/issues?q=%s&sort=updated&order=asc&per_page=%d&page=1", url.QueryEscape(query), perPage)
+	var resp struct {
+		Items []apiIssue `json:"items"`
+	}
+	if err := g.c.DoWithContext(ctx, http.MethodGet, path, nil, &resp); err != nil {
+		return nil, false, err
+	}
+	issues := make([]Issue, 0, len(resp.Items))
+	for _, it := range resp.Items {
+		is, err := it.toIssue()
+		if err != nil {
+			return nil, false, err
 		}
-		issues = append(issues, Issue{
-			Repo: repo, Number: it.Number, Title: it.Title, Body: it.Body, Author: it.User.Login,
-			URL: it.HTMLURL, State: it.State, Labels: labels, LabelColors: colors, Comments: it.Comments, CreatedAt: it.CreatedAt,
-			NodeID: it.NodeID, Assignees: logins(it.Assignees), Locked: it.Locked,
-		})
+		issues = append(issues, is)
 	}
 	return issues, len(resp.Items) == perPage, nil
 }

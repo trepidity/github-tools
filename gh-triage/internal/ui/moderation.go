@@ -60,7 +60,7 @@ func (m *Model) keyDupRef(k tea.KeyMsg) tea.Cmd {
 // lands, that part is applied and remembered so d retries only the close.
 func (m *Model) duplicate(is github.Issue, ref string) tea.Cmd {
 	client := m.client
-	return m.run("duplicate", func(ctx context.Context) (func(*Model) tea.Cmd, error) {
+	return m.run("duplicate", is.Key(), func(ctx context.Context) (func(*Model) tea.Cmd, error) {
 		c, err := client.AddComment(ctx, is.Repo, is.Number, "Duplicate of "+ref)
 		if err != nil {
 			return nil, err
@@ -82,7 +82,7 @@ func (m *Model) duplicate(is github.Issue, ref string) tea.Cmd {
 
 func (m *Model) closeAsDuplicate(is github.Issue, ref string) tea.Cmd {
 	client := m.client
-	return m.run("close", func(ctx context.Context) (func(*Model) tea.Cmd, error) {
+	return m.run("close", is.Key(), func(ctx context.Context) (func(*Model) tea.Cmd, error) {
 		if err := client.CloseIssue(ctx, is.Repo, is.Number, github.Duplicate); err != nil {
 			return nil, err
 		}
@@ -101,7 +101,7 @@ func (m *Model) undoClose() tea.Cmd {
 	}
 	is := *m.lastClose
 	client := m.client
-	return m.run("reopen", func(ctx context.Context) (func(*Model) tea.Cmd, error) {
+	return m.run("reopen", is.Key(), func(ctx context.Context) (func(*Model) tea.Cmd, error) {
 		if err := client.ReopenIssue(ctx, is.Repo, is.Number); err != nil {
 			return nil, err // stays closed; lastClose kept so u retries
 		}
@@ -156,7 +156,7 @@ func (m *Model) startLock() tea.Cmd {
 
 func (m *Model) lock(is github.Issue, reason github.LockReason) tea.Cmd {
 	client := m.client
-	return m.run("lock", func(ctx context.Context) (func(*Model) tea.Cmd, error) {
+	return m.run("lock", is.Key(), func(ctx context.Context) (func(*Model) tea.Cmd, error) {
 		if err := client.Lock(ctx, is.Repo, is.Number, reason); err != nil {
 			return nil, err
 		}
@@ -171,7 +171,7 @@ func (m *Model) lock(is github.Issue, reason github.LockReason) tea.Cmd {
 
 func (m *Model) unlock(is github.Issue) tea.Cmd {
 	client := m.client
-	return m.run("unlock", func(ctx context.Context) (func(*Model) tea.Cmd, error) {
+	return m.run("unlock", is.Key(), func(ctx context.Context) (func(*Model) tea.Cmd, error) {
 		if err := client.Unlock(ctx, is.Repo, is.Number); err != nil {
 			return nil, err
 		}
@@ -206,7 +206,7 @@ func (m *Model) confirmTransfer(to github.Repo) tea.Cmd {
 // transfer moves the issue; like a close, the row stays (marked moved) and the view advances.
 func (m *Model) transfer(is github.Issue, to github.Repo) tea.Cmd {
 	client := m.client
-	return m.run("transfer", func(ctx context.Context) (func(*Model) tea.Cmd, error) {
+	return m.run("transfer", is.Key(), func(ctx context.Context) (func(*Model) tea.Cmd, error) {
 		url, err := client.TransferIssue(ctx, is, to)
 		if err != nil {
 			return nil, err
