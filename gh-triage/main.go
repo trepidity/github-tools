@@ -75,6 +75,7 @@ func run() error {
 	if lipgloss.HasDarkBackground() {
 		style = "dark"
 	}
+	positionsPath := filepath.Join(home, ".cache", "gh-triage", "positions.json")
 	model := ui.New(github.NewREST(rest, gql), ui.Options{
 		Query:     q,
 		Pins:      pins,
@@ -82,12 +83,16 @@ func run() error {
 		Style:     style,
 		Queries:   cfg.Queries,
 		Templates: cfg.Templates,
+		Positions: config.ReadPositions(positionsPath),
 	})
 	final, err := tea.NewProgram(model, tea.WithAltScreen()).Run()
 	if err != nil {
 		return err
 	}
 	if m, ok := final.(ui.Model); ok {
+		if err := config.WritePositions(positionsPath, m.Positions()); err != nil {
+			fmt.Fprintln(os.Stderr, "gh triage: saving position:", err)
+		}
 		if s := m.Summary(); s != "" {
 			fmt.Println(s)
 		}

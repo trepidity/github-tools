@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -88,6 +89,32 @@ func WriteRepoCache(path string, names []string) error {
 		return err
 	}
 	b, err := json.Marshal(names)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, b, 0o644)
+}
+
+// Position is the last issue viewed in a queue.
+type Position struct {
+	Key       string    `json:"key"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// ReadPositions returns saved positions by query, or an empty map if there are none.
+func ReadPositions(path string) map[string]Position {
+	out := map[string]Position{}
+	if b, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(b, &out)
+	}
+	return out
+}
+
+func WritePositions(path string, p map[string]Position) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	b, err := json.Marshal(p)
 	if err != nil {
 		return err
 	}

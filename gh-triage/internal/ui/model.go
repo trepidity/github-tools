@@ -25,9 +25,10 @@ type Options struct {
 	RepoCache string        // repo-list cache file; empty disables caching
 	Style     string        // glamour style: "dark", "light" or "notty" (default)
 
-	ActionTimeout time.Duration  // limit for each GitHub request; zero means defaultActionTimeout
-	Queries       []config.Named // saved searches, listed first when s is pressed
-	Templates     []config.Named // reply templates, inserted with ctrl+t
+	ActionTimeout time.Duration              // limit for each GitHub request; zero means defaultActionTimeout
+	Queries       []config.Named             // saved searches, listed first when s is pressed
+	Templates     []config.Named             // reply templates, inserted with ctrl+t
+	Positions     map[string]config.Position // last viewed issue by normalized query
 }
 
 type screen int
@@ -68,7 +69,9 @@ type Model struct {
 
 	// queue
 	query         string
-	gen           int // bumped on every new search so late pages from an old one are dropped
+	positions     map[string]config.Position // updated on every issue open; written by main on quit
+	resume        *config.Position           // where the current query should land while pages load
+	gen           int                        // bumped on every new search so late pages from an old one are dropped
 	issues        []github.Issue
 	stateOverride map[string]string // key → "open"/"closed" confirmed this session; wins over search results (the index lags both ways)
 	hasMore       bool
@@ -137,6 +140,10 @@ func New(client github.Client, opts Options) Model {
 		editor:   newEditor(),
 	}
 	m.renderer = newRenderer(opts.Style, m.width)
+	m.positions = map[string]config.Position{}
+	for q, p := range opts.Positions {
+		m.positions[q] = p
+	}
 	if opts.Query != "" {
 		m.initCmd = m.startSearch(opts.Query)
 	} else {
@@ -405,6 +412,10 @@ func (m *Model) indexOf(key string) int {
 func (m *Model) startSearch(q string) tea.Cmd {
 	m.gen++
 	m.query = issueQuery(q)
+	m.resume = nil
+	if p, ok := m.positions[m.query]; ok {
+		m.resume = &p
+	}
 	m.issues, m.visible = nil, nil
 	m.cursor, m.offset = 0, 0
 	m.hasMore, m.loadingPage = false, true
@@ -446,6 +457,7 @@ func (m *Model) onSearchLoaded(msg searchLoadedMsg) tea.Cmd {
 	}
 	if msg.err != nil {
 		m.status = "search failed: " + firstLine(msg.err.Error())
+		m.resume = nil
 		return nil
 	}
 	seen := make(map[string]bool, len(m.issues)+len(msg.issues))
@@ -462,8 +474,32 @@ func (m *Model) onSearchLoaded(msg searchLoadedMsg) tea.Cmd {
 	}
 	m.hasMore = msg.hasMore && added > 0 // a page of only repeats would request itself forever
 	m.applyFilter()
+	if m.resume != nil {
+		return m.seekResume()
+	}
 	return m.maybeFetchMore()
 }
+
+// seekResume puts the cursor on the saved issue once it is loaded, or on the first older
+// issue once the queue has passed it (it was closed since); otherwise it loads another page.
+func (m *Model) seekResume() tea.Cmd {
+	target := *m.resume
+	for vi, i := range m.visible {
+		if is := m.issues[i]; is.Key() == target.Key || is.CreatedAt.Before(target.CreatedAt) {
+			m.cursor, m.resume = vi, nil
+			return nil
+		}
+	}
+	if m.hasMore && !m.loadingPage {
+		m.loadingPage = true
+		return m.fetchPage()
+	}
+	m.resume = nil // never found: stay at the top
+	return nil
+}
+
+// Positions is the last issue viewed per query, for main to save on quit.
+func (m Model) Positions() map[string]config.Position { return m.positions }
 
 // applyFilter recomputes visible rows, keeping the cursor on the same issue when it survives.
 func (m *Model) applyFilter() {
@@ -485,6 +521,9 @@ func (m *Model) applyFilter() {
 // openIssue shows visible row vi and loads its comments, prefetching the next issue's.
 func (m *Model) openIssue(vi int) tea.Cmd {
 	m.cursor = vi
+	if is, ok := m.current(); ok {
+		m.positions[m.query] = config.Position{Key: is.Key(), CreatedAt: is.CreatedAt}
+	}
 	m.screen, m.mode, m.status = screenIssue, modeNone, ""
 	m.refreshIssue()
 	m.viewport.GotoTop()
