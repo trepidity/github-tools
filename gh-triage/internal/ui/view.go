@@ -131,6 +131,8 @@ func (m Model) footer(help string) string {
 		line = statusStyle.Render(m.status)
 	case m.mode == modeFilter:
 		line = m.filter.View()
+	case m.mode == modeDupRef:
+		line = m.ref.View() + "  " + statusStyle.Render(m.status)
 	case m.mode == modeCloseReason:
 		line = statusStyle.Render("close as: c completed · n not planned · esc cancel")
 	case m.mode == modeComment && m.status == "":

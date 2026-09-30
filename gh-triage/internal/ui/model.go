@@ -45,6 +45,7 @@ const (
 	modeComment
 	modeCloseReason
 	modePicker
+	modeDupRef
 )
 
 // prefetchWindow is how close the cursor may get to the end of the loaded issues
@@ -92,6 +93,9 @@ type Model struct {
 	editor            textarea.Model
 	closeAfterComment bool
 	drafts            map[string]string // unsent comment text by issue key (esc keeps it)
+	ref               textinput.Model   // "duplicate of:" prompt
+	dupCommented      map[string]string // key → ref already commented as duplicate; d then only closes
+	lastClose         *github.Issue     // what u reopens; replaced by each close
 	busy              bool              // a GitHub write is in flight; keys are ignored
 	tally             [numActions]int
 
@@ -123,6 +127,7 @@ func New(client github.Client, opts Options) Model {
 		client: client, opts: opts, width: 80, height: 24,
 		stateOverride: map[string]string{}, comments: map[string][]github.Comment{}, commentsLoading: map[string]bool{},
 		drafts: map[string]string{}, commentsErr: map[string]bool{},
+		ref: newInput("duplicate of: "), dupCommented: map[string]string{},
 		labelOpts: map[github.Repo][]string{}, assigneeOpts: map[github.Repo][]string{},
 		filter:   newInput("/ "),
 		viewport: viewport.New(80, 20),
@@ -209,6 +214,8 @@ func (m *Model) onKey(k tea.KeyMsg) tea.Cmd {
 		return m.keyCloseReason(k)
 	case modePicker:
 		return m.keyPicker(k)
+	case modeDupRef:
+		return m.keyDupRef(k)
 	}
 	if m.screen == screenIssue {
 		return m.keyIssue(k)
@@ -231,6 +238,8 @@ func (m *Model) keyList(k tea.KeyMsg) tea.Cmd {
 		if len(m.visible) > 0 {
 			return m.openIssue(m.cursor)
 		}
+	case "u":
+		return m.undoClose()
 	case "/":
 		m.mode = modeFilter
 		return m.filter.Focus()
@@ -290,6 +299,10 @@ func (m *Model) keyIssue(k tea.KeyMsg) tea.Cmd {
 			return cmd
 		}
 		return nil
+	case "d":
+		return m.startDuplicate()
+	case "u":
+		return m.undoClose()
 	case "c":
 		return m.startComment(false)
 	case "X":

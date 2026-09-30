@@ -180,6 +180,7 @@ func (m *Model) keyCloseReason(k tea.KeyMsg) tea.Cmd {
 func (m *Model) markClosed(is github.Issue) tea.Cmd {
 	m.stateOverride[is.Key()] = "closed"
 	m.count(actClosed)
+	m.lastClose = &is
 	var cmd tea.Cmd
 	if m.cursor+1 < len(m.visible) {
 		cmd = m.openIssue(m.cursor + 1)
