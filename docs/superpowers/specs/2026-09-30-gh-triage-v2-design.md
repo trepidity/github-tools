@@ -73,8 +73,9 @@ Nothing is printed if there were no actions.
 ### Action runner (replaces per-action messages)
 
 ```go
-// run starts an action: sets busy + status, applies the timeout, and on success
-// calls the returned apply on the UI goroutine. apply is the only place state changes.
+// run starts an action: sets busy + status and applies the timeout. do returns apply for
+// whatever GitHub confirmed (nil if nothing) and err for whatever failed; both may be set.
+// apply runs on the UI goroutine and is the only place state changes.
 func (m *Model) run(label string, do func(ctx context.Context) (apply func(*Model) tea.Cmd, err error)) tea.Cmd
 
 type actionDoneMsg struct {
@@ -86,8 +87,11 @@ type actionDoneMsg struct {
 
 - Timeout comes from `Options.ActionTimeout` (set to 30s in `main`), applied with
   `context.WithTimeout`. This fixes M3. Search and comment loading also use it.
-- On error: `busy` clears, status shows `<label> failed: <first line of error>`, apply is not called.
-- On success: `busy` clears, `apply` runs, and its returned command (e.g. advance) runs.
+- `busy` clears. If `apply` is non-nil it runs, and its returned command (e.g. advance) runs.
+  If `err` is non-nil the status shows `<label> failed: <first line of error>` (after any status
+  `apply` set, so a partial success reads e.g. `commented; close failed: …`).
+- Full failure = `apply` nil: state unchanged. Partial success = both set: only the confirmed part
+  is applied, so a retry never repeats a step GitHub already accepted.
 - v1's `commentPostedMsg` and `closedMsg` are migrated onto `run`; their behavior is unchanged.
 
 ### Picker (generalizes the repo switcher)
@@ -113,9 +117,9 @@ type Client interface {
     // v2
     CurrentUser(ctx) (string, error)
     ListLabels(ctx, repo Repo) ([]string, error)
-    SetLabels(ctx, repo Repo, number int, labels []string) error
+    SetLabels(ctx, repo Repo, number int, labels []string) ([]string, error)       // labels GitHub now has
     ListAssignees(ctx, repo Repo) ([]string, error)
-    SetAssignees(ctx, repo Repo, number int, add, remove []string) error
+    SetAssignees(ctx, repo Repo, number int, assignees []string) ([]string, error) // assignees GitHub now has
     AddReaction(ctx, repo Repo, number int, r Reaction) error
     ReopenIssue(ctx, repo Repo, number int) error
     Lock(ctx, repo Repo, number int, reason LockReason) error
@@ -128,9 +132,9 @@ type Client interface {
 |---|---|
 | `CurrentUser` | `GET /user` → `login` (cached by the UI for the session) |
 | `ListLabels` | `GET /repos/{o}/{r}/labels?per_page=100`, all pages |
-| `SetLabels` | `PUT /repos/{o}/{r}/issues/{n}/labels` `{labels:[…]}` (replaces the set; `[]` clears) |
+| `SetLabels` | `PUT /repos/{o}/{r}/issues/{n}/labels` `{labels:[…]}` (replaces the set; `[]` clears); returns the response's label names |
 | `ListAssignees` | `GET /repos/{o}/{r}/assignees?per_page=100`, all pages |
-| `SetAssignees` | `POST …/issues/{n}/assignees` `{assignees:add}` then `DELETE …/issues/{n}/assignees` `{assignees:remove}`; empty lists skip their call |
+| `SetAssignees` | `PATCH …/issues/{n}` `{assignees:[…]}` — one request that replaces the set; returns the response issue's `assignees` logins. GitHub silently drops users who can't be assigned, so the response, not the request, is the truth |
 | `AddReaction` | `POST …/issues/{n}/reactions` `{content}` |
 | `CloseIssue` | v1 endpoint; `Duplicate` → `state_reason: "duplicate"` |
 | `ReopenIssue` | `PATCH …/issues/{n}` `{state:"open"}` |
@@ -171,10 +175,13 @@ Positions: `ReadPositions(path) map[string]Position` / `WritePositions(path, map
 | `labels, assignees map[Repo][]string` | Per-repo option lists, fetched once per session |
 | `drafts map[string]string` | Comment drafts by issue key (M8) |
 | `commentsErr map[string]bool` | Comment load failed for this key; shows retry hint (M4) |
+| `stateOverride map[string]string` | Replaces v1's `closed map[string]bool`: issue key → `open`/`closed` confirmed this session; wins over search `State` across searches (the index lags both ways) |
+| `dupCommented map[string]string` | Issue key → duplicate ref already commented; `d` on it skips the prompt and comment and only closes |
 | `lastClose *github.Issue` | What `u` reopens; replaced by each close, cleared by a successful undo |
 | `transferred map[string]string` | Issue key → new URL; row shows `→ moved`, persists across searches |
 | `tally map[string]int` | Confirmed action counts for the quit summary |
-| `resume *config.Position` | Target to land on while the first pages load; cleared when reached or passed |
+| `positions map[string]config.Position` | Loaded at startup, updated on issue open, written on quit |
+| `resume *config.Position` | Target for the current query; set by every `startSearch`, cleared when reached or passed |
 
 `ui.New` takes positions and the positions path via `Options`. `main` runs the program, takes the
 final `ui.Model` from `Program.Run`, writes positions, and prints `Model.Summary()`.
@@ -182,18 +189,22 @@ final `ui.Model` from `Program.Run`, writes positions, and prints `Model.Summary
 ## Data flow
 
 - **Labels / assignees:** opening the picker fetches the option list if the repo's list isn't
-  cached (picker shows `loading…`). Applying sends the full label set (labels) or the add/remove
-  diff (assignees). On success the issue's `Labels`/`Assignees` are replaced in `m.issues`.
+  cached (picker shows `loading…`). Applying sends the full desired set in one request. On success
+  the issue's `Labels`/`Assignees` are replaced with the set **GitHub returned**. If the returned
+  set differs from the requested one, the status says so (e.g. `assigned; ignored: bob`). The tally
+  counts `labeled`/`assigned` only when the returned set differs from the previous one.
 - **Assign self (`a`):** adds `me` if absent, removes it if present.
 - **Reaction:** fire and confirm; status `reacted 👍`. Reactions are not shown in the thread (no
   display change beyond status).
 - **Duplicate:** `AddComment` then `CloseIssue(Duplicate)` inside one `run`. Success = both.
-  If the comment posts and the close fails, apply still records the comment (so it appears), and
-  the status reads `commented; close failed: …`. The issue stays open.
-- **Close (any kind) success:** v1 behavior (mark closed, advance) plus `lastClose` = that issue
+  If the comment posts and the close fails, `do` returns an `apply` that records the comment (so it
+  appears) together with the close error (partial success); the status reads
+  `commented; close failed: …` and the issue stays open. `d` again offers only the close.
+- **Close (any kind) success:** v1 behavior (`stateOverride[key] = closed`, advance) plus `lastClose` = that issue
   and `tally["closed"]++`.
-- **Undo:** `ReopenIssue(lastClose)`. Success clears the session-closed mark for that key, sets the
-  issue's `State` to `open`, clears `lastClose`, status `reopened <key>`. The cursor does not move.
+- **Undo:** `ReopenIssue(lastClose)`. Success sets `stateOverride[key] = open` (whether or not the
+  issue is in the current queue), clears `lastClose`, status `reopened <key>`. The cursor does not
+  move. A later search that returns the stale `closed` state still shows it open and closable.
   Undo only reopens: a comment posted with the close (`X`, `d`) stays, and `tally["closed"]` is
   decremented.
 - **Transfer:** success records `transferred[key] = newURL`, then advances like a close. Moved
@@ -203,7 +214,9 @@ final `ui.Model` from `Program.Run`, writes positions, and prints `Model.Summary
 - **`$EDITOR`:** writes the draft to a temp file, runs the editor via `tea.ExecProcess`, reads the
   file back on exit 0 and replaces the textarea contents. Non-zero exit: draft unchanged, status
   `editor exited with error`. The temp file is removed either way.
-- **Resume:** on start, if `positions[query]` exists, set `resume`. Each loaded page: if the
+- **Resume:** positions are loaded into the model at startup. Every `startSearch` (CLI argument,
+  `--query`, repo picker, search picker) replaces `resume` with `positions[normalized query]`, or
+  clears it if there is none, so a target from a previous query never carries over. Each loaded page: if the
   target key is present, move the cursor there and clear `resume`; else if the oldest loaded issue
   is older than `resume.CreatedAt`, put the cursor on the first issue created before it and clear
   `resume`; else, while `resume` is set and `hasMore`, fetch the next page. Opening an issue records
@@ -211,7 +224,7 @@ final `ui.Model` from `Program.Run`, writes positions, and prints `Model.Summary
 
 ## Error handling
 
-- All actions: `<label> failed: <first line>`; state unchanged (apply not called).
+- All actions: `<label> failed: <first line>`; state unchanged except for any confirmed partial step.
 - Timeout: `<label> failed: context deadline exceeded` after `ActionTimeout`; UI usable again.
 - Comment load failure: body shows `comments failed to load — R to retry` instead of loading (M4).
 - Duplicate partial failure: as in Data flow.
@@ -229,13 +242,13 @@ Per `~/.claude/skills/test-selection/SKILL.md`. Each test names what it protects
 | # | Behavior | Protects | Level |
 |---|---|---|---|
 | 1 | Hung client call ends as a timeout error and clears `busy` | M3 fix; refusal path | UI model + fake Client (short `ActionTimeout`) |
-| 2 | Failed label/assignee set leaves the issue's labels/assignees unchanged | Confirmed-not-optimistic rule | UI + fake |
-| 3 | `u` reopens the last close; a failed reopen keeps it closed and still undoable | Undo transition + refusal | UI + fake |
+| 2 | Failed label/assignee set leaves the issue unchanged; a successful set applies GitHub's returned set, not the requested one | Confirmed-not-optimistic rule; silent-drop case | UI + fake |
+| 3 | `u` reopens the last close; a failed reopen keeps it closed and still undoable; after undo, a new search returning stale `closed` still shows it open | Undo transition + refusal; stale-index override | UI + fake |
 | 4 | Duplicate: comment OK, close fails → still open, comment shown, status says so | Partial-failure path | UI + fake |
 | 5 | Transfer success marks the row moved, advances, queue length unchanged; later actions refused | Positions-never-shift invariant; refusal | UI + fake |
 | 6 | Esc in editor then `c` restores the draft; a successful post clears it | M8 fix | UI + fake |
-| 7 | Resume lands on the saved issue across pages; stops paging once past its `CreatedAt`; lands on the next older issue if the saved one is gone | Resume requirement; paging bound | UI + fake |
-| 8 | Wire bodies/paths: SetLabels PUT, SetAssignees add+remove, reaction `content`, `state_reason: duplicate`, lock `lock_reason`, reopen, transfer GraphQL variables | Agreement with GitHub's API | `httptest` |
+| 7 | Resume lands on the saved issue across pages; stops paging once past its `CreatedAt`; lands on the next older issue if the saved one is gone; works when the query starts from the repo picker, and switching queries drops the old target | Resume requirement; paging bound | UI + fake |
+| 8 | Wire bodies/paths: SetLabels PUT, SetAssignees single PATCH with full set, reaction `content`, `state_reason: duplicate`, lock `lock_reason`, reopen, transfer GraphQL variables | Agreement with GitHub's API | `httptest` |
 | 9 | `ParseIssueRef`: accepts `123`, `#123`, `o/r#123`; rejects `o/r`, `abc`, `#0`, `o/r#` | Dense parser | Pure unit |
 | 10 | Config `queries`/`templates` keep file order; empty name or value rejected | Ordering invariant; refusal | Pure unit on `config.Load` |
 | 11 | Tally counts only confirmed actions (a failed close is not counted) | Summary accuracy | UI + fake |
