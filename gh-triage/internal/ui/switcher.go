@@ -64,16 +64,16 @@ func (m *Model) loadRepos() tea.Cmd {
 	}
 	m.sw.fetched = true
 	client := m.client
-	return func() tea.Msg {
-		repos, err := client.ListRepos(context.Background())
+	return m.fetch(func(ctx context.Context) tea.Msg {
+		repos, err := client.ListRepos(ctx)
 		return reposLoadedMsg{repos: repos, err: err}
-	}
+	})
 }
 
 func (m *Model) onReposLoaded(msg reposLoadedMsg) {
 	if msg.err != nil {
 		m.sw.fetched = false // retry next time the switcher opens
-		m.status = "loading repos failed: " + msg.err.Error()
+		m.status = "loading repos failed: " + firstLine(msg.err.Error())
 		return
 	}
 	var selected string

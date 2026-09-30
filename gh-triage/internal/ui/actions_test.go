@@ -5,6 +5,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/trepidity/gh-triage/internal/ui"
 )
 
 func threeIssues(t *testing.T) *fakeClient {
@@ -160,5 +163,40 @@ func TestCommentEditor_shows_how_to_send_while_typing(t *testing.T) {
 	v := lines(m)
 	if footer := strings.Join(v[len(v)-2:], "\n"); !strings.Contains(footer, "ctrl+s send") || !strings.Contains(footer, "esc cancel") {
 		t.Fatalf("footer while typing a comment:\n%s", footer)
+	}
+}
+
+// Protects (spec test 1, M3): a request GitHub never answers ends as a timeout error,
+// and the UI takes keys again instead of staying busy until ctrl+c.
+func TestHungRequest_times_out_and_frees_the_ui(t *testing.T) {
+	f := threeIssues(t)
+	f.hang = true
+	m := start(t, f, ui.Options{Query: "repo:o/r", ActionTimeout: 20 * time.Millisecond})
+
+	m = press(t, m, "enter", "x", "c")
+	if !strings.Contains(text(m), "close failed: context deadline exceeded") {
+		t.Fatalf("after hung close:\n%s", text(m))
+	}
+	f.hang = false
+	m = press(t, m, "x", "c")
+	if !strings.HasPrefix(header(m), "o/r#2 ") {
+		t.Fatalf("UI still stuck after timeout; header = %q", header(m))
+	}
+}
+
+// Protects (Review Focus 1): a multi-line API error shows only its first line, so the
+// issue title stays on screen.
+func TestMultiLineError_shows_only_its_first_line(t *testing.T) {
+	f := threeIssues(t)
+	f.closeErr = errors.New("HTTP 422: Validation Failed\n{\"message\":\"Validation Failed\",\"errors\":[]}")
+	m := start(t, f, repoOpts)
+
+	m = press(t, m, "enter", "x", "c")
+	v := text(m)
+	if !strings.Contains(v, "close failed: HTTP 422: Validation Failed") || strings.Contains(v, `"errors"`) {
+		t.Fatalf("status:\n%s", v)
+	}
+	if !strings.HasPrefix(header(m), "o/r#1 ") {
+		t.Fatalf("header pushed off screen: %q", header(m))
 	}
 }

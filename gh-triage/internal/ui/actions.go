@@ -12,18 +12,6 @@ import (
 
 const editorHeight = 6
 
-type (
-	commentPostedMsg struct {
-		key     string
-		comment github.Comment
-		err     error
-	}
-	closedMsg struct {
-		key string
-		err error
-	}
-)
-
 func newEditor() textarea.Model {
 	ta := textarea.New()
 	ta.Placeholder = "Leave a comment (ctrl+s send · esc cancel)"
@@ -32,6 +20,43 @@ func newEditor() textarea.Model {
 	ta.SetHeight(editorHeight)
 	ta.Cursor.SetMode(cursor.CursorStatic)
 	return ta
+}
+
+// actionDoneMsg carries a finished action back to the UI goroutine.
+type actionDoneMsg struct {
+	label string
+	apply func(*Model) tea.Cmd // what GitHub confirmed; nil if nothing
+	err   error                // what failed; nil if nothing
+}
+
+// run starts an action: it sets busy, applies the request timeout and calls do off the UI
+// goroutine. do returns apply for whatever GitHub confirmed and err for whatever failed —
+// both may be set (partial success). apply is the only place an action changes state.
+func (m *Model) run(label string, do func(ctx context.Context) (func(*Model) tea.Cmd, error)) tea.Cmd {
+	m.busy, m.status = true, label+"…"
+	timeout := m.timeout()
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		apply, err := do(ctx)
+		return actionDoneMsg{label: label, apply: apply, err: err}
+	}
+}
+
+func (m *Model) onActionDone(msg actionDoneMsg) tea.Cmd {
+	m.busy, m.status = false, ""
+	var cmd tea.Cmd
+	if msg.apply != nil {
+		cmd = msg.apply(m)
+	}
+	if msg.err != nil {
+		failed := msg.label + " failed: " + firstLine(msg.err.Error())
+		if m.status != "" {
+			failed = m.status + "; " + failed
+		}
+		m.status = failed
+	}
+	return cmd
 }
 
 func (m *Model) startComment(thenClose bool) tea.Cmd {
@@ -62,40 +87,44 @@ func (m *Model) keyComment(k tea.KeyMsg) tea.Cmd {
 			return nil
 		}
 		is, _ := m.current()
-		m.busy, m.status = true, "posting comment…"
 		client := m.client
-		return func() tea.Msg {
-			c, err := client.AddComment(context.Background(), is.Repo, is.Number, body)
-			return commentPostedMsg{key: is.Key(), comment: c, err: err}
-		}
+		return m.run("comment", func(ctx context.Context) (func(*Model) tea.Cmd, error) {
+			c, err := client.AddComment(ctx, is.Repo, is.Number, body)
+			if err != nil {
+				return nil, err // the draft stays in the editor
+			}
+			return func(m *Model) tea.Cmd { return m.commentPosted(is.Key(), c) }, nil
+		})
 	}
 	var cmd tea.Cmd
 	m.editor, cmd = m.editor.Update(k)
 	return cmd
 }
 
-func (m *Model) onCommentPosted(msg commentPostedMsg) {
-	m.busy = false
-	if msg.err != nil {
-		m.status = "comment failed: " + msg.err.Error() // draft stays in the editor
-		return
-	}
-	if cs, loaded := m.comments[msg.key]; loaded {
-		m.comments[msg.key] = append(cs, msg.comment)
-	}
-	if i := m.indexOf(msg.key); i >= 0 {
-		m.issues[i].Comments++
-	}
+func (m *Model) commentPosted(key string, c github.Comment) tea.Cmd {
+	m.recordComment(key, c)
 	m.editor.Reset()
 	m.editor.Blur()
 	m.status = "commented"
-	m.refreshIssue()
 	m.viewport.GotoBottom()
 	if m.closeAfterComment {
 		m.mode = modeCloseReason
-		return
+		return nil
 	}
 	m.mode = modeNone
+	return nil
+}
+
+// recordComment adds a comment GitHub accepted to the thread and the row's count.
+func (m *Model) recordComment(key string, c github.Comment) {
+	if cs, loaded := m.comments[key]; loaded {
+		m.comments[key] = append(cs, c)
+	}
+	if i := m.indexOf(key); i >= 0 {
+		m.issues[i].Comments++
+	}
+	m.count(actCommented)
+	m.refreshIssue()
 }
 
 func (m *Model) startClose() tea.Cmd {
@@ -124,25 +153,25 @@ func (m *Model) keyCloseReason(k tea.KeyMsg) tea.Cmd {
 	default:
 		return nil
 	}
+	m.mode = modeNone
 	is, _ := m.current()
-	m.busy, m.status = true, "closing…"
 	client := m.client
-	return func() tea.Msg {
-		return closedMsg{key: is.Key(), err: client.CloseIssue(context.Background(), is.Repo, is.Number, reason)}
-	}
+	return m.run("close", func(ctx context.Context) (func(*Model) tea.Cmd, error) {
+		if err := client.CloseIssue(ctx, is.Repo, is.Number, reason); err != nil {
+			return nil, err
+		}
+		return func(m *Model) tea.Cmd { return m.markClosed(is) }, nil
+	})
 }
 
-func (m *Model) onClosed(msg closedMsg) tea.Cmd {
-	m.busy, m.mode = false, modeNone
-	if msg.err != nil {
-		m.status = "close failed: " + msg.err.Error()
-		return nil
-	}
-	m.closed[msg.key] = true
+// markClosed records a close GitHub confirmed and advances to the next issue.
+func (m *Model) markClosed(is github.Issue) tea.Cmd {
+	m.stateOverride[is.Key()] = "closed"
+	m.count(actClosed)
 	var cmd tea.Cmd
 	if m.cursor+1 < len(m.visible) {
 		cmd = m.openIssue(m.cursor + 1)
 	}
-	m.status = "closed " + msg.key
+	m.status = "closed " + is.Key()
 	return cmd
 }

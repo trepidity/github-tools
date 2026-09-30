@@ -24,6 +24,7 @@ type fakeClient struct {
 	commentErr error
 	closeErr   error
 	repos      []github.Repo
+	hang       bool // CloseIssue blocks until the request's context ends, like a hung connection
 }
 
 func (f *fakeClient) SearchIssues(_ context.Context, _ string, before time.Time) ([]github.Issue, bool, error) {
@@ -52,8 +53,12 @@ func (f *fakeClient) AddComment(_ context.Context, r github.Repo, n int, body st
 	return github.Comment{Author: "me", Body: body, CreatedAt: time.Now()}, nil
 }
 
-func (f *fakeClient) CloseIssue(_ context.Context, r github.Repo, n int, reason github.CloseReason) error {
+func (f *fakeClient) CloseIssue(ctx context.Context, r github.Repo, n int, reason github.CloseReason) error {
 	f.closes = append(f.closes, fmt.Sprintf("%s#%d %s", r, n, reason))
+	if f.hang {
+		<-ctx.Done()
+		return ctx.Err()
+	}
 	if f.closeErr != nil {
 		return f.closeErr
 	}

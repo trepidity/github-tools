@@ -23,6 +23,8 @@ type Options struct {
 	Pins      []github.Repo // listed first in the repo switcher
 	RepoCache string        // repo-list cache file; empty disables caching
 	Style     string        // glamour style: "dark", "light" or "notty" (default)
+
+	ActionTimeout time.Duration // limit for each GitHub request; zero means defaultActionTimeout
 }
 
 type screen int
@@ -49,6 +51,8 @@ const prefetchWindow = 10
 
 const loadingMoreStatus = "loading more issues…"
 
+const defaultActionTimeout = 30 * time.Second
+
 type Model struct {
 	client        github.Client
 	opts          Options
@@ -62,7 +66,7 @@ type Model struct {
 	query       string
 	gen         int // bumped on every new search so late pages from an old one are dropped
 	issues      []github.Issue
-	closed      map[string]bool // closed this session; kept across searches (the search index lags)
+	stateOverride map[string]string // key → "open"/"closed" confirmed this session; wins over search results (the index lags both ways)
 	hasMore     bool
 	loadingPage bool
 
@@ -80,7 +84,8 @@ type Model struct {
 
 	editor            textarea.Model
 	closeAfterComment bool
-	busy              bool // a comment or close request is in flight; keys are ignored
+	busy              bool // a GitHub write is in flight; keys are ignored
+	tally             [numActions]int
 
 	prompt textinput.Model
 	sw     switcher
@@ -107,7 +112,7 @@ func New(client github.Client, opts Options) Model {
 	}
 	m := Model{
 		client: client, opts: opts, width: 80, height: 24,
-		closed: map[string]bool{}, comments: map[string][]github.Comment{}, commentsLoading: map[string]bool{},
+		stateOverride: map[string]string{}, comments: map[string][]github.Comment{}, commentsLoading: map[string]bool{},
 		filter: newInput("/ "), prompt: newInput("search: "),
 		viewport: viewport.New(80, 20),
 		editor:   newEditor(),
@@ -163,10 +168,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.onCommentsLoaded(msg)
 	case statusMsg:
 		m.status = string(msg)
-	case commentPostedMsg:
-		m.onCommentPosted(msg)
-	case closedMsg:
-		cmd = m.onClosed(msg)
+	case actionDoneMsg:
+		cmd = m.onActionDone(msg)
 	case reposLoadedMsg:
 		m.onReposLoaded(msg)
 	case tea.KeyMsg:
@@ -328,7 +331,32 @@ func (m *Model) currentIndex() int {
 }
 
 func (m *Model) isClosed(is github.Issue) bool {
-	return is.State == "closed" || m.closed[is.Key()]
+	if s, ok := m.stateOverride[is.Key()]; ok {
+		return s == "closed"
+	}
+	return is.State == "closed"
+}
+
+func (m *Model) timeout() time.Duration {
+	if m.opts.ActionTimeout > 0 {
+		return m.opts.ActionTimeout
+	}
+	return defaultActionTimeout
+}
+
+// fetch runs a background read under the request timeout. Unlike run it leaves keys live.
+func (m *Model) fetch(f func(ctx context.Context) tea.Msg) tea.Cmd {
+	timeout := m.timeout()
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		return f(ctx)
+	}
+}
+
+func firstLine(s string) string {
+	line, _, _ := strings.Cut(s, "\n")
+	return line
 }
 
 func (m *Model) indexOf(key string) int {
@@ -359,10 +387,10 @@ func (m *Model) fetchPage() tea.Cmd {
 	if n := len(m.issues); n > 0 {
 		before = m.issues[n-1].CreatedAt
 	}
-	return func() tea.Msg {
-		issues, hasMore, err := client.SearchIssues(context.Background(), q, before)
+	return m.fetch(func(ctx context.Context) tea.Msg {
+		issues, hasMore, err := client.SearchIssues(ctx, q, before)
 		return searchLoadedMsg{gen: gen, issues: issues, hasMore: hasMore, err: err}
-	}
+	})
 }
 
 // maybeFetchMore requests the next page when the cursor nears the last visible row, so a
@@ -384,7 +412,7 @@ func (m *Model) onSearchLoaded(msg searchLoadedMsg) tea.Cmd {
 		m.status = ""
 	}
 	if msg.err != nil {
-		m.status = "search failed: " + msg.err.Error()
+		m.status = "search failed: " + firstLine(msg.err.Error())
 		return nil
 	}
 	seen := make(map[string]bool, len(m.issues)+len(msg.issues))
@@ -443,10 +471,10 @@ func (m *Model) loadComments(is github.Issue) tea.Cmd {
 	}
 	m.commentsLoading[key] = true
 	client := m.client
-	return func() tea.Msg {
-		cs, err := client.GetComments(context.Background(), is.Repo, is.Number)
+	return m.fetch(func(ctx context.Context) tea.Msg {
+		cs, err := client.GetComments(ctx, is.Repo, is.Number)
 		return commentsLoadedMsg{key: key, comments: cs, err: err}
-	}
+	})
 }
 
 func (m *Model) onCommentsLoaded(msg commentsLoadedMsg) {
@@ -455,7 +483,7 @@ func (m *Model) onCommentsLoaded(msg commentsLoadedMsg) {
 	isCurrent := ok && is.Key() == msg.key
 	if msg.err != nil {
 		if isCurrent {
-			m.status = "loading comments failed: " + msg.err.Error()
+			m.status = "loading comments failed: " + firstLine(msg.err.Error())
 		}
 		return
 	}
