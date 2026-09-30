@@ -90,7 +90,7 @@ gh-triage/
 type Repo struct{ owner, name string }   // only constructible via ParseRepo("owner/repo")
 
 type Client interface {
-    SearchIssues(ctx, query string, page int) (issues []Issue, hasMore bool, err error)
+    SearchIssues(ctx, query string, before time.Time) (issues []Issue, hasMore bool, err error)
     GetComments(ctx, repo Repo, number int) ([]Comment, error)
     AddComment(ctx, repo Repo, number int, body string) (Comment, error)
     CloseIssue(ctx, repo Repo, number int, reason CloseReason) error
@@ -100,7 +100,9 @@ type Client interface {
 type CloseReason int  // Completed | NotPlanned → "completed" | "not_planned"
 ```
 
-- `SearchIssues`: `GET /search/issues?q=…&per_page=100&page=N`. Search API caps at 1000 results.
+- `SearchIssues`: `GET /search/issues?q=…&sort=created&order=desc&per_page=100`, with
+  `created:<=<before>` appended for later pages (keyset paging). Page offsets are not used:
+  closing issues shrinks an `is:open` result set, so `page=N` would skip unseen issues.
 - `GetComments`: `GET /repos/{o}/{r}/issues/{n}/comments` (paginated).
 - `AddComment`: `POST /repos/{o}/{r}/issues/{n}/comments` `{body}`.
 - `CloseIssue`: `PATCH /repos/{o}/{r}/issues/{n}` `{state:"closed", state_reason}`.
@@ -109,9 +111,11 @@ type CloseReason int  // Completed | NotPlanned → "completed" | "not_planned"
 The UI depends on the `Client` interface; production uses the go-gh implementation.
 
 ### Data flow
-- **Queue** = results of one search query. First page loads at start; the next page is fetched
-  when the cursor (list or issue screen) comes within 10 of the end of loaded rows, at most one
-  in-flight page fetch at a time.
+- **Queue** = results of one search query, newest first. First page loads at start; the next
+  page (issues created at or before the oldest loaded one, duplicates dropped) is fetched when the
+  cursor comes within 10 of the last *visible* row, at most one in-flight page fetch at a time.
+- **Closed state** comes from GitHub (`state`) or from a close made this session; session closes
+  persist across searches because the search index lags.
 - **Issue open:** body comes from the search result; comments fetched on open. Comments for the
   next issue are prefetched in the background and cached by `repo#num`.
 - **Repo list:** cached at `~/.cache/gh-triage/repos.json`. Switcher opens from cache immediately
