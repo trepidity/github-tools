@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/cursor"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -36,6 +37,8 @@ const (
 	modeNone mode = iota
 	modeFilter
 	modeSearch
+	modeComment
+	modeCloseReason
 )
 
 // prefetchWindow is how close the cursor may get to the end of the loaded issues
@@ -72,6 +75,10 @@ type Model struct {
 	viewport        viewport.Model
 	renderer        *glamour.TermRenderer
 
+	editor            textarea.Model
+	closeAfterComment bool
+	busy              bool // a comment or close request is in flight; keys are ignored
+
 	prompt textinput.Model
 }
 
@@ -99,6 +106,7 @@ func New(client github.Client, opts Options) Model {
 		closed: map[string]bool{}, comments: map[string][]github.Comment{}, commentsLoading: map[string]bool{},
 		filter: newInput("/ "), prompt: newInput("search: "),
 		viewport: viewport.New(80, 20),
+		editor:   newEditor(),
 	}
 	m.renderer = newRenderer(opts.Style, m.width)
 	if opts.Query != "" {
@@ -148,6 +156,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.onCommentsLoaded(msg)
 	case statusMsg:
 		m.status = string(msg)
+	case commentPostedMsg:
+		m.onCommentPosted(msg)
+	case closedMsg:
+		cmd = m.onClosed(msg)
 	case tea.KeyMsg:
 		cmd = m.onKey(msg)
 	}
@@ -159,11 +171,18 @@ func (m *Model) onKey(k tea.KeyMsg) tea.Cmd {
 	if k.String() == "ctrl+c" {
 		return tea.Quit
 	}
+	if m.busy {
+		return nil
+	}
 	switch m.mode {
 	case modeFilter:
 		return m.keyFilter(k)
 	case modeSearch:
 		return m.keySearch(k)
+	case modeComment:
+		return m.keyComment(k)
+	case modeCloseReason:
+		return m.keyCloseReason(k)
 	}
 	if m.screen == screenIssue {
 		return m.keyIssue(k)
@@ -256,6 +275,12 @@ func (m *Model) keyIssue(k tea.KeyMsg) tea.Cmd {
 		}
 		m.status = "start of queue"
 		return nil
+	case "c":
+		return m.startComment(false)
+	case "X":
+		return m.startComment(true)
+	case "x":
+		return m.startClose()
 	case "o":
 		if is, ok := m.current(); ok {
 			return openBrowser(is.URL)

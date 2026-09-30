@@ -31,6 +31,7 @@ func (m Model) View() string {
 
 // layout sizes the viewport and list scroll to the terminal. Called after every Update.
 func (m *Model) layout() {
+	m.editor.SetWidth(m.width)
 	m.viewport.Width = m.width
 	m.viewport.Height = max(m.height-m.chromeHeight(), 3)
 	rows := m.listRows()
@@ -42,8 +43,14 @@ func (m *Model) layout() {
 	}
 }
 
-// chromeHeight is the issue screen's non-viewport lines: title, meta, status, help.
-func (m Model) chromeHeight() int { return 4 }
+// chromeHeight is the issue screen's non-viewport lines: title, meta, status, help,
+// plus the comment editor while it is open.
+func (m Model) chromeHeight() int {
+	if m.mode == modeComment {
+		return 4 + editorHeight
+	}
+	return 4
+}
 
 // listRows is how many issue rows fit: everything but the header, status and help lines.
 func (m Model) listRows() int { return max(m.height-3, 1) }
@@ -105,18 +112,22 @@ func (m Model) viewIssue() string {
 	}
 	return headerStyle.Render(truncate(is.Key()+" · "+is.Title, m.width)) + "\n" +
 		truncate(meta, m.width) + "\n" +
-		m.viewport.View() + "\n" +
+		m.viewport.View() + "\n" + m.editorView() +
 		m.footer(issueHelp)
 }
 
 // footer is the status line (or the active input) above the help line.
 func (m Model) footer(help string) string {
 	var line string
-	switch m.mode {
-	case modeFilter:
+	switch {
+	case m.busy:
+		line = statusStyle.Render(m.status)
+	case m.mode == modeFilter:
 		line = m.filter.View()
-	case modeSearch:
+	case m.mode == modeSearch:
 		line = m.prompt.View()
+	case m.mode == modeCloseReason:
+		line = statusStyle.Render("close as: c completed · n not planned · esc cancel")
 	default:
 		line = statusStyle.Render(m.status)
 	}
@@ -168,4 +179,11 @@ func age(t time.Time) string {
 		return fmt.Sprintf("%dd", int(d.Hours()/24))
 	}
 	return fmt.Sprintf("%dy", int(d.Hours()/24/365))
+}
+
+func (m Model) editorView() string {
+	if m.mode != modeComment {
+		return ""
+	}
+	return m.editor.View() + "\n"
 }
