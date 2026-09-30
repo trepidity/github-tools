@@ -1,10 +1,13 @@
 package ui_test
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/trepidity/gh-triage/internal/github"
 	"github.com/trepidity/gh-triage/internal/ui"
 )
@@ -42,5 +45,38 @@ func TestSwitcher_selecting_a_repo_loads_its_open_issues(t *testing.T) {
 	}
 	if row := selectedRow(t, m); !strings.Contains(row, "o/r#1 ") {
 		t.Fatalf("selected row = %q", row)
+	}
+}
+
+// Protects (review I3): typing a filter highlights the best match, so enter opens it
+// rather than whatever row the cursor happened to be on.
+func TestSwitcher_typing_highlights_the_top_match(t *testing.T) {
+	f := &fakeClient{repos: []github.Repo{mustRepo(t, "o/aa"), mustRepo(t, "o/ab"), mustRepo(t, "o/ac"), mustRepo(t, "x/zed"), mustRepo(t, "x/zeta")}}
+	m := start(t, f, ui.Options{})
+
+	m = press(t, m, "down", "ze")
+	top := switcherRows(lines(m))[0]
+	m = press(t, m, "enter")
+	if h := header(m); !strings.Contains(h, "repo:"+top+" ") {
+		t.Fatalf("top match %s, but enter opened: %q", top, h)
+	}
+}
+
+// Protects (review I3): when the cached repo list is refreshed from GitHub, the
+// highlight stays on the repo the user picked instead of shifting to a neighbour.
+func TestSwitcher_keeps_the_highlighted_repo_when_the_list_refreshes(t *testing.T) {
+	cache := filepath.Join(t.TempDir(), "repos.json")
+	if err := os.WriteFile(cache, []byte(`["o/b","o/c"]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeClient{repos: []github.Repo{mustRepo(t, "o/a"), mustRepo(t, "o/b"), mustRepo(t, "o/c")}}
+	var m tea.Model = ui.New(f, ui.Options{RepoCache: cache})
+	refresh := m.Init()
+	m = send(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+
+	m, _ = m.Update(key("down")) // o/c, from the cache
+	m = run(t, m, refresh)
+	if row := selectedRow(t, m); !strings.Contains(row, "o/c") {
+		t.Fatalf("highlight after refresh = %q, want o/c", row)
 	}
 }

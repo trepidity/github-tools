@@ -76,6 +76,10 @@ func (m *Model) onReposLoaded(msg reposLoadedMsg) {
 		m.status = "loading repos failed: " + msg.err.Error()
 		return
 	}
+	var selected string
+	if m.sw.cursor < len(m.sw.items) {
+		selected = m.sw.items[m.sw.cursor].String()
+	}
 	m.sw.all = msg.repos
 	if m.opts.RepoCache != "" {
 		names := make([]string, len(msg.repos))
@@ -85,6 +89,7 @@ func (m *Model) onReposLoaded(msg reposLoadedMsg) {
 		_ = config.WriteRepoCache(m.opts.RepoCache, names) // best effort; next run refetches anyway
 	}
 	m.filterSwitcher()
+	m.selectRepo(selected) // keep the highlight on the same repo as rows shift
 }
 
 func (m *Model) filterSwitcher() {
@@ -128,10 +133,24 @@ func (m *Model) keySwitcher(k tea.KeyMsg) tea.Cmd {
 		m.sw.input.Blur()
 		return m.startSearch(RepoQuery(m.sw.items[m.sw.cursor]))
 	}
+	before := m.sw.input.Value()
 	var cmd tea.Cmd
 	m.sw.input, cmd = m.sw.input.Update(k)
+	if m.sw.input.Value() != before {
+		m.sw.cursor = 0 // new filter: highlight the best match
+	}
 	m.filterSwitcher()
 	return cmd
+}
+
+func (m *Model) selectRepo(name string) {
+	m.sw.cursor = 0
+	for i, r := range m.sw.items {
+		if r.String() == name {
+			m.sw.cursor = i
+			return
+		}
+	}
 }
 
 func (m Model) viewSwitcher() string {
