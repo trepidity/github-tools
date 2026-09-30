@@ -18,9 +18,13 @@ import (
 const perPage = 100
 
 // REST implements Client with go-gh, which reuses the token `gh auth login` stored.
-type REST struct{ c *api.RESTClient }
+// Transfer has no REST endpoint, so it alone uses GraphQL.
+type REST struct {
+	c   *api.RESTClient
+	gql *api.GraphQLClient
+}
 
-func NewREST(c *api.RESTClient) *REST { return &REST{c: c} }
+func NewREST(c *api.RESTClient, gql *api.GraphQLClient) *REST { return &REST{c: c, gql: gql} }
 
 type apiUser struct {
 	Login string `json:"login"`
@@ -247,4 +251,45 @@ func getAll[T any](ctx context.Context, c *api.RESTClient, path string) ([]T, er
 		}
 	}
 	return all, nil
+}
+
+func (g *REST) ReopenIssue(ctx context.Context, repo Repo, number int) error {
+	return g.send(ctx, http.MethodPatch, issuePath(repo, number), map[string]string{"state": "open"}, nil)
+}
+
+func (g *REST) Lock(ctx context.Context, repo Repo, number int, reason LockReason) error {
+	return g.send(ctx, http.MethodPut, issuePath(repo, number)+"/lock", map[string]string{"lock_reason": reason.String()}, nil)
+}
+
+func (g *REST) Unlock(ctx context.Context, repo Repo, number int) error {
+	return g.c.DoWithContext(ctx, http.MethodDelete, issuePath(repo, number)+"/lock", nil, nil)
+}
+
+func (g *REST) TransferIssue(ctx context.Context, is Issue, to Repo) (string, error) {
+	if is.NodeID == "" {
+		return "", fmt.Errorf("%s has no node id", is.Key())
+	}
+	var target struct {
+		Repository struct {
+			ID string `json:"id"`
+		} `json:"repository"`
+	}
+	err := g.gql.DoWithContext(ctx, `query($owner:String!,$name:String!){repository(owner:$owner,name:$name){id}}`,
+		map[string]any{"owner": to.owner, "name": to.name}, &target)
+	if err != nil {
+		return "", err
+	}
+	var moved struct {
+		TransferIssue struct {
+			Issue struct {
+				URL string `json:"url"`
+			} `json:"issue"`
+		} `json:"transferIssue"`
+	}
+	err = g.gql.DoWithContext(ctx, `mutation($issue:ID!,$repo:ID!){transferIssue(input:{issueId:$issue,repositoryId:$repo}){issue{url}}}`,
+		map[string]any{"issue": is.NodeID, "repo": target.Repository.ID}, &moved)
+	if err != nil {
+		return "", err
+	}
+	return moved.TransferIssue.Issue.URL, nil
 }

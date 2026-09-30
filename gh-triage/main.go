@@ -66,12 +66,16 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("not authenticated with GitHub (run `gh auth login`): %w", err)
 	}
+	gql, err := api.DefaultGraphQLClient()
+	if err != nil {
+		return fmt.Errorf("not authenticated with GitHub (run `gh auth login`): %w", err)
+	}
 
 	style := "light"
 	if lipgloss.HasDarkBackground() {
 		style = "dark"
 	}
-	model := ui.New(github.NewREST(rest), ui.Options{
+	model := ui.New(github.NewREST(rest, gql), ui.Options{
 		Query:     q,
 		Pins:      pins,
 		RepoCache: filepath.Join(home, ".cache", "gh-triage", "repos.json"),

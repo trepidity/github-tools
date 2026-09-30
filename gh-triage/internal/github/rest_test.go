@@ -1,6 +1,7 @@
 package github
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -35,19 +36,26 @@ func newTestREST(t *testing.T, handler func(w http.ResponseWriter, r *http.Reque
 	var reqs []recorded
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rec := recorded{method: r.Method, path: r.URL.Path}
-		if b, _ := io.ReadAll(r.Body); len(b) > 0 {
+		b, _ := io.ReadAll(r.Body)
+		if len(b) > 0 {
 			_ = json.Unmarshal(b, &rec.body)
 		}
+		r.Body = io.NopCloser(bytes.NewReader(b))
 		reqs = append(reqs, rec)
 		handler(w, r)
 	}))
 	t.Cleanup(srv.Close)
 	target, _ := url.Parse(srv.URL)
-	c, err := api.NewRESTClient(api.ClientOptions{Host: "github.com", AuthToken: "test-token", Transport: rewrite{target}})
+	opts := api.ClientOptions{Host: "github.com", AuthToken: "test-token", Transport: rewrite{target}}
+	c, err := api.NewRESTClient(opts)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewREST(c), &reqs
+	gql, err := api.NewGraphQLClient(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return NewREST(c, gql), &reqs
 }
 
 func mustRepo(t *testing.T, s string) Repo {
@@ -60,7 +68,7 @@ func mustRepo(t *testing.T, s string) Repo {
 }
 
 func TestCloseIssue_sends_closed_state_with_the_state_reason_github_expects(t *testing.T) {
-	for reason, want := range map[CloseReason]string{Completed: "completed", NotPlanned: "not_planned"} {
+	for reason, want := range map[CloseReason]string{Completed: "completed", NotPlanned: "not_planned", Duplicate: "duplicate"} {
 		g, reqs := newTestREST(t, func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, `{}`) })
 		if err := g.CloseIssue(context.Background(), mustRepo(t, "o/r"), 7, reason); err != nil {
 			t.Fatal(err)
@@ -195,5 +203,73 @@ func TestAddReaction_posts_githubs_content_names(t *testing.T) {
 		if req.method != http.MethodPost || req.path != "/repos/o/r/issues/7/reactions" || req.body["content"] != content {
 			t.Fatalf("%s: request = %s %s %v", content, req.method, req.path, req.body)
 		}
+	}
+}
+
+// Protects (spec test 8): reopen, lock and unlock hit GitHub's endpoints, and lock
+// reasons use GitHub's exact names ("too heated" has a space).
+func TestReopenLockUnlock_use_githubs_endpoints_and_reason_names(t *testing.T) {
+	g, reqs := newTestREST(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPatch {
+			fmt.Fprint(w, `{}`)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	repo := mustRepo(t, "o/r")
+	if err := g.ReopenIssue(context.Background(), repo, 7); err != nil {
+		t.Fatal(err)
+	}
+	if got := (*reqs)[0]; got.method != http.MethodPatch || got.path != "/repos/o/r/issues/7" || got.body["state"] != "open" {
+		t.Fatalf("reopen = %s %s %v", got.method, got.path, got.body)
+	}
+	want := map[LockReason]string{OffTopic: "off-topic", TooHeated: "too heated", Resolved: "resolved", Spam: "spam"}
+	if len(want) != len(AllLockReasons()) {
+		t.Fatalf("AllLockReasons has %d entries, test covers %d", len(AllLockReasons()), len(want))
+	}
+	for reason, name := range want {
+		if err := g.Lock(context.Background(), repo, 7, reason); err != nil {
+			t.Fatal(err)
+		}
+		got := (*reqs)[len(*reqs)-1]
+		if got.method != http.MethodPut || got.path != "/repos/o/r/issues/7/lock" || got.body["lock_reason"] != name {
+			t.Fatalf("lock %s = %s %s %v", name, got.method, got.path, got.body)
+		}
+	}
+	if err := g.Unlock(context.Background(), repo, 7); err != nil {
+		t.Fatal(err)
+	}
+	if got := (*reqs)[len(*reqs)-1]; got.method != http.MethodDelete || got.path != "/repos/o/r/issues/7/lock" {
+		t.Fatalf("unlock = %s %s", got.method, got.path)
+	}
+}
+
+// Protects (spec test 8): transfer looks up the target repo's node id, then sends the
+// issue's node id and that repo id to transferIssue, and returns the new URL. The handler
+// answers by the GraphQL query text it received.
+func TestTransferIssue_sends_issue_and_target_repo_node_ids(t *testing.T) {
+	g, reqs := newTestREST(t, func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		if strings.Contains(string(b), "transferIssue") {
+			fmt.Fprint(w, `{"data":{"transferIssue":{"issue":{"url":"https://github.com/o/new/issues/9"}}}}`)
+			return
+		}
+		fmt.Fprint(w, `{"data":{"repository":{"id":"R_1"}}}`)
+	})
+	is := Issue{Repo: mustRepo(t, "o/r"), Number: 7, NodeID: "I_7"}
+	url, err := g.TransferIssue(context.Background(), is, mustRepo(t, "o/new"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if url != "https://github.com/o/new/issues/9" {
+		t.Fatalf("url = %q", url)
+	}
+	if len(*reqs) != 2 || (*reqs)[0].path != "/graphql" || (*reqs)[1].path != "/graphql" {
+		t.Fatalf("requests = %+v", *reqs)
+	}
+	lookup, _ := (*reqs)[0].body["variables"].(map[string]any)
+	move, _ := (*reqs)[1].body["variables"].(map[string]any)
+	if lookup["owner"] != "o" || lookup["name"] != "new" || move["issue"] != "I_7" || move["repo"] != "R_1" {
+		t.Fatalf("lookup vars = %v, transfer vars = %v", lookup, move)
 	}
 }

@@ -34,6 +34,10 @@ type fakeClient struct {
 	dropped    map[string]bool // assignees GitHub silently ignores
 	sets       []string        // "key labels=a,b" or "key assignees=a,b"
 	reactions  []string        // "key content"
+	reopens    []string        // "key" for each ReopenIssue call
+	reopenErr  error
+	locks      []string // "key lock <reason>" or "key unlock"
+	transfers  []string // "key → owner/repo"
 }
 
 func (f *fakeClient) SearchIssues(_ context.Context, _ string, before time.Time) ([]github.Issue, bool, error) {
@@ -110,6 +114,26 @@ func (f *fakeClient) SetAssignees(_ context.Context, r github.Repo, n int, who [
 		}
 	}
 	return kept, nil
+}
+
+func (f *fakeClient) ReopenIssue(_ context.Context, r github.Repo, n int) error {
+	f.reopens = append(f.reopens, fmt.Sprintf("%s#%d", r, n))
+	return f.reopenErr
+}
+
+func (f *fakeClient) Lock(_ context.Context, r github.Repo, n int, reason github.LockReason) error {
+	f.locks = append(f.locks, fmt.Sprintf("%s#%d lock %s", r, n, reason))
+	return nil
+}
+
+func (f *fakeClient) Unlock(_ context.Context, r github.Repo, n int) error {
+	f.locks = append(f.locks, fmt.Sprintf("%s#%d unlock", r, n))
+	return nil
+}
+
+func (f *fakeClient) TransferIssue(_ context.Context, is github.Issue, to github.Repo) (string, error) {
+	f.transfers = append(f.transfers, fmt.Sprintf("%s → %s", is.Key(), to))
+	return "https://github.com/" + to.String() + "/issues/99", nil
 }
 
 func (f *fakeClient) AddReaction(_ context.Context, r github.Repo, n int, re github.Reaction) error {

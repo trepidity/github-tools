@@ -4,6 +4,7 @@ package github
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -52,6 +53,7 @@ type CloseReason int
 const (
 	Completed CloseReason = iota
 	NotPlanned
+	Duplicate
 )
 
 // String is the state_reason value GitHub's API expects.
@@ -61,6 +63,8 @@ func (r CloseReason) String() string {
 		return "completed"
 	case NotPlanned:
 		return "not_planned"
+	case Duplicate:
+		return "duplicate"
 	}
 	panic(fmt.Sprintf("unknown CloseReason %d", int(r)))
 }
@@ -83,6 +87,11 @@ type Client interface {
 	// it silently drops users who cannot be assigned.
 	SetAssignees(ctx context.Context, repo Repo, number int, assignees []string) ([]string, error)
 	AddReaction(ctx context.Context, repo Repo, number int, r Reaction) error
+	ReopenIssue(ctx context.Context, repo Repo, number int) error
+	Lock(ctx context.Context, repo Repo, number int, reason LockReason) error
+	Unlock(ctx context.Context, repo Repo, number int) error
+	// TransferIssue moves the issue to another repo and returns its new URL.
+	TransferIssue(ctx context.Context, is Issue, to Repo) (string, error)
 }
 
 type Reaction int
@@ -146,4 +155,54 @@ func (r Reaction) Emoji() string {
 		return "👀"
 	}
 	panic(fmt.Sprintf("unknown Reaction %d", int(r)))
+}
+
+type LockReason int
+
+const (
+	OffTopic LockReason = iota
+	TooHeated
+	Resolved
+	Spam
+)
+
+func AllLockReasons() []LockReason { return []LockReason{OffTopic, TooHeated, Resolved, Spam} }
+
+// String is the lock_reason value GitHub's API expects.
+func (r LockReason) String() string {
+	switch r {
+	case OffTopic:
+		return "off-topic"
+	case TooHeated:
+		return "too heated"
+	case Resolved:
+		return "resolved"
+	case Spam:
+		return "spam"
+	}
+	panic(fmt.Sprintf("unknown LockReason %d", int(r)))
+}
+
+// ParseIssueRef reads "123", "#123" or "owner/repo#123". A bare number is in current.
+func ParseIssueRef(s string, current Repo) (Repo, int, error) {
+	bad := fmt.Errorf("invalid issue %q: want 123, #123 or owner/repo#123", s)
+	ref := strings.TrimSpace(s)
+	repo := current
+	if r, num, ok := strings.Cut(ref, "#"); ok && r != "" {
+		parsed, err := ParseRepo(r)
+		if err != nil {
+			return Repo{}, 0, bad
+		}
+		repo, ref = parsed, num
+	} else {
+		ref = strings.TrimPrefix(ref, "#")
+	}
+	if ref == "" || strings.Trim(ref, "0123456789") != "" {
+		return Repo{}, 0, bad
+	}
+	n, err := strconv.Atoi(ref)
+	if err != nil || n < 1 {
+		return Repo{}, 0, bad
+	}
+	return repo, n, nil
 }
