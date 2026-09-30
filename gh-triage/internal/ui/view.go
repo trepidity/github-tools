@@ -23,7 +23,10 @@ const (
 )
 
 func (m Model) View() string {
-	if m.screen == screenIssue {
+	switch {
+	case m.mode == modeSwitcher:
+		return m.viewSwitcher()
+	case m.screen == screenIssue:
 		return m.viewIssue()
 	}
 	return m.viewList()

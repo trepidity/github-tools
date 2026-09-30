@@ -39,6 +39,7 @@ const (
 	modeSearch
 	modeComment
 	modeCloseReason
+	modeSwitcher
 )
 
 // prefetchWindow is how close the cursor may get to the end of the loaded issues
@@ -80,6 +81,7 @@ type Model struct {
 	busy              bool // a comment or close request is in flight; keys are ignored
 
 	prompt textinput.Model
+	sw     switcher
 }
 
 type (
@@ -107,10 +109,13 @@ func New(client github.Client, opts Options) Model {
 		filter: newInput("/ "), prompt: newInput("search: "),
 		viewport: viewport.New(80, 20),
 		editor:   newEditor(),
+		sw:       switcher{input: newInput("repo: ")},
 	}
 	m.renderer = newRenderer(opts.Style, m.width)
 	if opts.Query != "" {
 		m.initCmd = m.startSearch(opts.Query)
+	} else {
+		m.initCmd = m.openSwitcher()
 	}
 	return m
 }
@@ -160,6 +165,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.onCommentPosted(msg)
 	case closedMsg:
 		cmd = m.onClosed(msg)
+	case reposLoadedMsg:
+		m.onReposLoaded(msg)
 	case tea.KeyMsg:
 		cmd = m.onKey(msg)
 	}
@@ -183,6 +190,8 @@ func (m *Model) onKey(k tea.KeyMsg) tea.Cmd {
 		return m.keyComment(k)
 	case modeCloseReason:
 		return m.keyCloseReason(k)
+	case modeSwitcher:
+		return m.keySwitcher(k)
 	}
 	if m.screen == screenIssue {
 		return m.keyIssue(k)
@@ -194,6 +203,8 @@ func (m *Model) keyList(k tea.KeyMsg) tea.Cmd {
 	switch k.String() {
 	case "q":
 		return tea.Quit
+	case "r":
+		return m.openSwitcher()
 	case "j", "down":
 		m.moveCursor(m.cursor + 1)
 		return m.maybeFetchMore()
@@ -281,6 +292,8 @@ func (m *Model) keyIssue(k tea.KeyMsg) tea.Cmd {
 		return m.startComment(true)
 	case "x":
 		return m.startClose()
+	case "r":
+		return m.openSwitcher()
 	case "o":
 		if is, ok := m.current(); ok {
 			return openBrowser(is.URL)
