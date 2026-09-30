@@ -85,11 +85,11 @@ type actionDoneMsg struct {
 }
 ```
 
-- Timeout comes from `Options.ActionTimeout` (set to 30s in `main`), applied with
+- Timeout comes from `Options.ActionTimeout` (zero means the 30s default), applied with
   `context.WithTimeout`. This fixes M3. Search and comment loading also use it.
 - `busy` clears. If `apply` is non-nil it runs, and its returned command (e.g. advance) runs.
   If `err` is non-nil the status shows `<label> failed: <first line of error>` (after any status
-  `apply` set, so a partial success reads e.g. `commented; close failed: …`).
+  `apply` set, so a partial success reads e.g. `commented; duplicate failed: …`).
 - Full failure = `apply` nil: state unchanged. Partial success = both set: only the confirmed part
   is applied, so a retry never repeats a step GitHub already accepted.
 - v1's `commentPostedMsg` and `closedMsg` are migrated onto `run`; their behavior is unchanged.
@@ -183,15 +183,15 @@ Positions: `ReadPositions(path) map[string]Position` / `WritePositions(path, map
 | `positions map[string]config.Position` | Loaded at startup, updated on issue open, written on quit |
 | `resume *config.Position` | Target for the current query; set by every `startSearch`, cleared when reached or passed |
 
-`ui.New` takes positions and the positions path via `Options`. `main` runs the program, takes the
-final `ui.Model` from `Program.Run`, writes positions, and prints `Model.Summary()`.
+`ui.New` takes the loaded positions via `Options.Positions`. `main` runs the program, takes the
+final `ui.Model` from `Program.Run`, writes `Model.Positions()`, and prints `Model.Summary()`.
 
 ## Data flow
 
 - **Labels / assignees:** opening the picker fetches the option list if the repo's list isn't
   cached (picker shows `loading…`). Applying sends the full desired set in one request. On success
   the issue's `Labels`/`Assignees` are replaced with the set **GitHub returned**. If the returned
-  set differs from the requested one, the status says so (e.g. `assigned; ignored: bob`). The tally
+  set differs from the requested one, the status says so (e.g. `assigned: me · ignored: bob`). The tally
   counts `labeled`/`assigned` only when the returned set differs from the previous one.
 - **Assign self (`a`):** adds `me` if absent, removes it if present.
 - **Reaction:** fire and confirm; status `reacted 👍`. Reactions are not shown in the thread (no
@@ -199,7 +199,7 @@ final `ui.Model` from `Program.Run`, writes positions, and prints `Model.Summary
 - **Duplicate:** `AddComment` then `CloseIssue(Duplicate)` inside one `run`. Success = both.
   If the comment posts and the close fails, `do` returns an `apply` that records the comment (so it
   appears) together with the close error (partial success); the status reads
-  `commented; close failed: …` and the issue stays open. `d` again offers only the close.
+  `commented; duplicate failed: …` and the issue stays open. `d` again offers only the close.
 - **Close (any kind) success:** v1 behavior (`stateOverride[key] = closed`, advance) plus `lastClose` = that issue
   and `tally["closed"]++`.
 - **Undo:** `ReopenIssue(lastClose)`. Success sets `stateOverride[key] = open` (whether or not the
