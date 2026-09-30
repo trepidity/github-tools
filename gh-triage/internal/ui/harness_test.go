@@ -27,6 +27,13 @@ type fakeClient struct {
 	hang       bool             // CloseIssue blocks until the request's context ends, like a hung connection
 	thread     []github.Comment // what GetComments returns for every issue
 	loadErr    error            // GetComments fails with this
+	me         string
+	labels     []string        // the repo's labels
+	assignable []string        // the repo's assignable users
+	setErr     error           // SetLabels and SetAssignees fail with this
+	dropped    map[string]bool // assignees GitHub silently ignores
+	sets       []string        // "key labels=a,b" or "key assignees=a,b"
+	reactions  []string        // "key content"
 }
 
 func (f *fakeClient) SearchIssues(_ context.Context, _ string, before time.Time) ([]github.Issue, bool, error) {
@@ -74,6 +81,41 @@ func (f *fakeClient) CloseIssue(ctx context.Context, r github.Repo, n int, reaso
 }
 
 func (f *fakeClient) ListRepos(context.Context) ([]github.Repo, error) { return f.repos, nil }
+
+func (f *fakeClient) CurrentUser(context.Context) (string, error) { return f.me, nil }
+
+func (f *fakeClient) ListLabels(context.Context, github.Repo) ([]string, error) { return f.labels, nil }
+
+func (f *fakeClient) ListAssignees(context.Context, github.Repo) ([]string, error) {
+	return f.assignable, nil
+}
+
+func (f *fakeClient) SetLabels(_ context.Context, r github.Repo, n int, labels []string) ([]string, error) {
+	f.sets = append(f.sets, fmt.Sprintf("%s#%d labels=%s", r, n, strings.Join(labels, ",")))
+	if f.setErr != nil {
+		return nil, f.setErr
+	}
+	return labels, nil
+}
+
+func (f *fakeClient) SetAssignees(_ context.Context, r github.Repo, n int, who []string) ([]string, error) {
+	f.sets = append(f.sets, fmt.Sprintf("%s#%d assignees=%s", r, n, strings.Join(who, ",")))
+	if f.setErr != nil {
+		return nil, f.setErr
+	}
+	var kept []string
+	for _, w := range who {
+		if !f.dropped[w] {
+			kept = append(kept, w)
+		}
+	}
+	return kept, nil
+}
+
+func (f *fakeClient) AddReaction(_ context.Context, r github.Repo, n int, re github.Reaction) error {
+	f.reactions = append(f.reactions, fmt.Sprintf("%s#%d %s", r, n, re))
+	return nil
+}
 
 func mustRepo(t *testing.T, s string) github.Repo {
 	t.Helper()

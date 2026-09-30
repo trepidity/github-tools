@@ -136,3 +136,64 @@ func TestListRepos_follows_link_pagination_past_the_first_100(t *testing.T) {
 		t.Fatalf("repos = %v, want [me/a org/b]", repos)
 	}
 }
+
+// Protects (spec test 8): labels are replaced in one PUT, clearing sends [] (not null),
+// and the result is the set GitHub returned.
+func TestSetLabels_puts_the_full_set_and_returns_what_github_kept(t *testing.T) {
+	g, reqs := newTestREST(t, func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, `[{"name":"bug"}]`) })
+	got, err := g.SetLabels(context.Background(), mustRepo(t, "o/r"), 7, []string{"Bug"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := (*reqs)[0]
+	if req.method != http.MethodPut || req.path != "/repos/o/r/issues/7/labels" || !reflect.DeepEqual(req.body["labels"], []any{"Bug"}) {
+		t.Fatalf("request = %s %s %v", req.method, req.path, req.body)
+	}
+	if !reflect.DeepEqual(got, []string{"bug"}) {
+		t.Fatalf("returned %v, want GitHub's [bug]", got)
+	}
+	if _, err := g.SetLabels(context.Background(), mustRepo(t, "o/r"), 7, nil); err != nil {
+		t.Fatal(err)
+	}
+	if b := (*reqs)[1].body["labels"]; !reflect.DeepEqual(b, []any{}) {
+		t.Fatalf("clearing sent labels=%#v, want []", b)
+	}
+}
+
+// Protects (spec test 8, review findings 2-3): assignees are replaced in a single PATCH,
+// and the result is who GitHub actually assigned (it silently drops some).
+func TestSetAssignees_replaces_the_set_in_one_patch_and_returns_who_github_kept(t *testing.T) {
+	g, reqs := newTestREST(t, func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, `{"assignees":[{"login":"me"}]}`) })
+	got, err := g.SetAssignees(context.Background(), mustRepo(t, "o/r"), 7, []string{"me", "bob"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(*reqs) != 1 {
+		t.Fatalf("%d requests, want exactly 1", len(*reqs))
+	}
+	req := (*reqs)[0]
+	if req.method != http.MethodPatch || req.path != "/repos/o/r/issues/7" || !reflect.DeepEqual(req.body["assignees"], []any{"me", "bob"}) {
+		t.Fatalf("request = %s %s %v", req.method, req.path, req.body)
+	}
+	if !reflect.DeepEqual(got, []string{"me"}) {
+		t.Fatalf("returned %v, want [me]", got)
+	}
+}
+
+// Protects (spec test 8): each reaction sends the content name GitHub's API defines.
+func TestAddReaction_posts_githubs_content_names(t *testing.T) {
+	want := map[Reaction]string{ThumbsUp: "+1", ThumbsDown: "-1", Laugh: "laugh", Confused: "confused", Heart: "heart", Hooray: "hooray", Rocket: "rocket", Eyes: "eyes"}
+	if len(want) != len(AllReactions()) {
+		t.Fatalf("AllReactions has %d entries, test covers %d", len(AllReactions()), len(want))
+	}
+	for r, content := range want {
+		g, reqs := newTestREST(t, func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, `{}`) })
+		if err := g.AddReaction(context.Background(), mustRepo(t, "o/r"), 7, r); err != nil {
+			t.Fatal(err)
+		}
+		req := (*reqs)[0]
+		if req.method != http.MethodPost || req.path != "/repos/o/r/issues/7/reactions" || req.body["content"] != content {
+			t.Fatalf("%s: request = %s %s %v", content, req.method, req.path, req.body)
+		}
+	}
+}

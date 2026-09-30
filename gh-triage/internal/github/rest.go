@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -35,6 +36,9 @@ type apiIssue struct {
 	User          apiUser   `json:"user"`
 	Comments      int       `json:"comments"`
 	CreatedAt     time.Time `json:"created_at"`
+	NodeID        string    `json:"node_id"`
+	Assignees     []apiUser `json:"assignees"`
+	Locked        bool      `json:"locked"`
 	Labels        []struct {
 		Name string `json:"name"`
 	} `json:"labels"`
@@ -76,6 +80,7 @@ func (g *REST) SearchIssues(ctx context.Context, query string, before time.Time)
 		issues = append(issues, Issue{
 			Repo: repo, Number: it.Number, Title: it.Title, Body: it.Body, Author: it.User.Login,
 			URL: it.HTMLURL, State: it.State, Labels: labels, Comments: it.Comments, CreatedAt: it.CreatedAt,
+			NodeID: it.NodeID, Assignees: logins(it.Assignees), Locked: it.Locked,
 		})
 	}
 	return issues, len(resp.Items) == perPage, nil
@@ -103,25 +108,101 @@ func (g *REST) GetComments(ctx context.Context, repo Repo, number int) ([]Commen
 }
 
 func (g *REST) AddComment(ctx context.Context, repo Repo, number int, body string) (Comment, error) {
-	payload, err := json.Marshal(map[string]string{"body": body})
-	if err != nil {
-		return Comment{}, err
-	}
 	var c apiComment
-	path := fmt.Sprintf("repos/%s/issues/%d/comments", repo, number)
-	if err := g.c.DoWithContext(ctx, http.MethodPost, path, bytes.NewReader(payload), &c); err != nil {
+	if err := g.send(ctx, http.MethodPost, issuePath(repo, number)+"/comments", map[string]string{"body": body}, &c); err != nil {
 		return Comment{}, err
 	}
 	return c.toComment(), nil
 }
 
 func (g *REST) CloseIssue(ctx context.Context, repo Repo, number int, reason CloseReason) error {
-	payload, err := json.Marshal(map[string]string{"state": "closed", "state_reason": reason.String()})
-	if err != nil {
-		return err
+	return g.send(ctx, http.MethodPatch, issuePath(repo, number), map[string]string{"state": "closed", "state_reason": reason.String()}, nil)
+}
+
+func (g *REST) CurrentUser(ctx context.Context) (string, error) {
+	var u apiUser
+	if err := g.c.DoWithContext(ctx, http.MethodGet, "user", nil, &u); err != nil {
+		return "", err
 	}
-	path := fmt.Sprintf("repos/%s/issues/%d", repo, number)
-	return g.c.DoWithContext(ctx, http.MethodPatch, path, bytes.NewReader(payload), nil)
+	return u.Login, nil
+}
+
+type apiLabel struct {
+	Name string `json:"name"`
+}
+
+func labelNames(ls []apiLabel) []string {
+	out := make([]string, len(ls))
+	for i, l := range ls {
+		out[i] = l.Name
+	}
+	return out
+}
+
+func logins(us []apiUser) []string {
+	out := make([]string, len(us))
+	for i, u := range us {
+		out[i] = u.Login
+	}
+	return out
+}
+
+func (g *REST) ListLabels(ctx context.Context, repo Repo) ([]string, error) {
+	raw, err := getAll[apiLabel](ctx, g.c, fmt.Sprintf("repos/%s/labels?per_page=%d", repo, perPage))
+	if err != nil {
+		return nil, err
+	}
+	return labelNames(raw), nil
+}
+
+func (g *REST) SetLabels(ctx context.Context, repo Repo, number int, labels []string) ([]string, error) {
+	if labels == nil {
+		labels = []string{} // GitHub needs [] to clear; null is a validation error
+	}
+	var got []apiLabel
+	if err := g.send(ctx, http.MethodPut, issuePath(repo, number)+"/labels", map[string][]string{"labels": labels}, &got); err != nil {
+		return nil, err
+	}
+	return labelNames(got), nil
+}
+
+func (g *REST) ListAssignees(ctx context.Context, repo Repo) ([]string, error) {
+	raw, err := getAll[apiUser](ctx, g.c, fmt.Sprintf("repos/%s/assignees?per_page=%d", repo, perPage))
+	if err != nil {
+		return nil, err
+	}
+	return logins(raw), nil
+}
+
+// SetAssignees uses the issue PATCH, which replaces the whole set in one request.
+func (g *REST) SetAssignees(ctx context.Context, repo Repo, number int, assignees []string) ([]string, error) {
+	if assignees == nil {
+		assignees = []string{}
+	}
+	var got apiIssue
+	if err := g.send(ctx, http.MethodPatch, issuePath(repo, number), map[string][]string{"assignees": assignees}, &got); err != nil {
+		return nil, err
+	}
+	return logins(got.Assignees), nil
+}
+
+func (g *REST) AddReaction(ctx context.Context, repo Repo, number int, r Reaction) error {
+	return g.send(ctx, http.MethodPost, issuePath(repo, number)+"/reactions", map[string]string{"content": r.String()}, nil)
+}
+
+func issuePath(repo Repo, number int) string { return fmt.Sprintf("repos/%s/issues/%d", repo, number) }
+
+// send makes one request with a JSON body; out may be nil.
+func (g *REST) send(ctx context.Context, method, path string, body, out any) error {
+	var r io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		r = bytes.NewReader(b)
+	}
+	return g.c.DoWithContext(ctx, method, path, r, out)
 }
 
 func (g *REST) ListRepos(ctx context.Context) ([]Repo, error) {
