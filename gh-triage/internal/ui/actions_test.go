@@ -117,3 +117,36 @@ func TestKeysDuringInFlightClose_send_exactly_one_request(t *testing.T) {
 		t.Fatalf("closes = %v, want exactly one", f.closes)
 	}
 }
+
+// Protects (review I2, M1): an issue GitHub already reports closed shows as closed, and
+// neither x nor X sends another close (which would overwrite its close reason).
+func TestIssueClosedOnGitHub_shows_closed_and_refuses_to_close_again(t *testing.T) {
+	f := threeIssues(t)
+	f.open[1].State = "closed"
+	m := start(t, f, repoOpts)
+
+	if !closedMark(t, lines(m), "o/r#2") {
+		t.Fatalf("o/r#2 is closed on GitHub but the list shows it open:\n%s", text(m))
+	}
+	m = press(t, m, "j", "enter", "x")
+	if !strings.Contains(text(m), "already closed") {
+		t.Fatalf("x on a closed issue:\n%s", text(m))
+	}
+	press(t, m, "X", "dupe", "ctrl+s", "n")
+	if len(f.closes) != 0 || len(f.comments) != 0 {
+		t.Fatalf("closed issue was written to: closes=%v comments=%v", f.closes, f.comments)
+	}
+}
+
+// Protects (review I2): a close made this session survives a new search, even while
+// GitHub's search index still lists the issue as open.
+func TestClosedThisSession_stays_closed_after_a_new_search(t *testing.T) {
+	f := threeIssues(t)
+	f.staleIndex = true
+	m := start(t, f, repoOpts)
+
+	m = press(t, m, "enter", "x", "c", "esc", "s", "repo:o/r", "enter")
+	if !closedMark(t, lines(m), "o/r#1") {
+		t.Fatalf("o/r#1 closed this session shows open after re-search:\n%s", text(m))
+	}
+}

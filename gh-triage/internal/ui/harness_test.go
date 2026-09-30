@@ -80,7 +80,7 @@ func issues(t *testing.T, from, to int) []github.Issue {
 	newest := time.Now().Truncate(time.Second)
 	var out []github.Issue
 	for n := from; n <= to; n++ {
-		out = append(out, github.Issue{Repo: repo, Number: n, Title: fmt.Sprintf("Title %d", n), Author: "someone", CreatedAt: newest.Add(-time.Duration(n) * time.Minute)})
+		out = append(out, github.Issue{Repo: repo, Number: n, Title: fmt.Sprintf("Title %d", n), Author: "someone", State: "open", CreatedAt: newest.Add(-time.Duration(n) * time.Minute)})
 	}
 	return out
 }

@@ -35,7 +35,12 @@ func newEditor() textarea.Model {
 }
 
 func (m *Model) startComment(thenClose bool) tea.Cmd {
-	if _, ok := m.current(); !ok {
+	is, ok := m.current()
+	if !ok {
+		return nil
+	}
+	if thenClose && m.isClosed(is) {
+		m.status = "already closed"
 		return nil
 	}
 	m.mode = modeComment
@@ -98,7 +103,7 @@ func (m *Model) startClose() tea.Cmd {
 	if !ok {
 		return nil
 	}
-	if m.closed[is.Key()] {
+	if m.isClosed(is) {
 		m.status = "already closed"
 		return nil
 	}

@@ -62,7 +62,7 @@ type Model struct {
 	query       string
 	gen         int // bumped on every new search so late pages from an old one are dropped
 	issues      []github.Issue
-	closed      map[string]bool
+	closed      map[string]bool // closed this session; kept across searches (the search index lags)
 	hasMore     bool
 	loadingPage bool
 
@@ -327,6 +327,10 @@ func (m *Model) currentIndex() int {
 	return -1
 }
 
+func (m *Model) isClosed(is github.Issue) bool {
+	return is.State == "closed" || m.closed[is.Key()]
+}
+
 func (m *Model) indexOf(key string) int {
 	for i, is := range m.issues {
 		if is.Key() == key {
@@ -341,7 +345,6 @@ func (m *Model) startSearch(q string) tea.Cmd {
 	m.gen++
 	m.query = issueQuery(q)
 	m.issues, m.visible = nil, nil
-	m.closed = map[string]bool{}
 	m.cursor, m.offset = 0, 0
 	m.hasMore, m.loadingPage = false, true
 	m.filter.SetValue("")
