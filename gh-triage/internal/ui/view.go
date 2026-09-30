@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/trepidity/gh-triage/internal/github"
 )
 
 var (
@@ -19,7 +20,7 @@ var (
 
 const (
 	listHelp    = "j/k move · enter open · / filter · s search · r repos · u undo close · q quit"
-	issueHelp   = "esc list · n/p next/prev · c comment · x close · X comment+close · d dup · l labels · a/A assign · + react · L lock · t transfer · u undo · o browser · r repos"
+	issueHelp   = "esc list · n/p next/prev · c comment · x close · ? more"
 	commentHelp = "ctrl+s send · ctrl+t template · ctrl+e $EDITOR · esc cancel"
 )
 
@@ -47,13 +48,51 @@ func (m *Model) layout() {
 	}
 }
 
-// chromeHeight is the issue screen's non-viewport lines: title, meta, status, help,
-// plus the comment editor while it is open.
+// issueKeys is the full issue-screen key list shown by ?.
+var issueKeys = []string{"esc list", "n/p next/prev", "c comment", "x close", "X comment+close", "d dup",
+	"l labels", "a/A assign", "+ react", "L lock", "t transfer", "u undo", "R retry comments",
+	"o browser", "r repos", "? less"}
+
+// chromeHeight is the issue screen's non-viewport lines: title (one or two), meta, rule,
+// status and help, plus the comment editor while it is open.
 func (m Model) chromeHeight() int {
-	if m.mode == modeComment {
-		return 4 + editorHeight
+	h := 3 + strings.Count(m.issueHelp(), "\n") + 1
+	if is, ok := m.current(); ok {
+		h += len(m.titleLines(is))
+	} else {
+		h++
 	}
-	return 4
+	if m.mode == modeComment {
+		h += editorHeight
+	}
+	return h
+}
+
+// titleLines is the issue title wrapped to at most two lines; only a longer title is cut.
+func (m Model) titleLines(is github.Issue) []string {
+	lines := strings.Split(ansi.Wrap(is.Key()+" · "+is.Title, m.width, ""), "\n")
+	if len(lines) > 2 {
+		lines = []string{lines[0], truncate(strings.Join(lines[1:], " "), m.width)}
+	}
+	return lines
+}
+
+// wrapKeys joins key hints with " · ", starting a new line rather than splitting a hint.
+func wrapKeys(keys []string, width int) []string {
+	var lines []string
+	line := ""
+	for _, k := range keys {
+		switch {
+		case line == "":
+			line = k
+		case ansi.StringWidth(line+" · "+k) <= width:
+			line += " · " + k
+		default:
+			lines = append(lines, line)
+			line = k
+		}
+	}
+	return append(lines, line)
 }
 
 // listRows is how many issue rows fit: everything but the header, status and help lines.
@@ -127,8 +166,9 @@ func (m Model) viewIssue() string {
 	if len(is.Assignees) > 0 {
 		meta += " · assigned: " + strings.Join(is.Assignees, ", ")
 	}
-	return headerStyle.Render(truncate(is.Key()+" · "+is.Title, m.width)) + "\n" +
+	return headerStyle.Render(strings.Join(m.titleLines(is), "\n")) + "\n" +
 		truncate(meta, m.width) + "\n" +
+		dimStyle.Render(strings.Repeat("─", m.width)) + "\n" +
 		m.viewport.View() + "\n" + m.editorView() +
 		m.footer(m.issueHelp())
 }
@@ -152,7 +192,11 @@ func (m Model) footer(help string) string {
 	default:
 		line = statusStyle.Render(m.status)
 	}
-	return line + "\n" + helpStyle.Render(truncate(help, m.width))
+	helpLines := strings.Split(help, "\n")
+	for i, l := range helpLines {
+		helpLines[i] = truncate(l, m.width)
+	}
+	return line + "\n" + helpStyle.Render(strings.Join(helpLines, "\n"))
 }
 
 // refreshIssue re-renders the current issue's body and comments into the viewport.
@@ -214,8 +258,11 @@ func (m Model) editorView() string {
 
 // issueHelp swaps in the editor's keys while a comment is being written.
 func (m Model) issueHelp() string {
-	if m.mode == modeComment {
+	switch {
+	case m.mode == modeComment:
 		return commentHelp
+	case m.fullHelp:
+		return strings.Join(wrapKeys(issueKeys, m.width), "\n")
 	}
 	return issueHelp
 }

@@ -42,7 +42,7 @@ gh triage --query "org:foo assignee:@me" # any GitHub issue search
 | Screen | Keys |
 |---|---|
 | List | `j/k` move · `enter` open · `/` filter · `s` search (saved or typed) · `r` repos · `u` undo last close · `q` quit |
-| Issue | `n/p` next/prev · `c` comment · `x` close · `X` comment+close · `d` close as duplicate · `l` labels · `a` assign me · `A` assignees · `+` react · `L` lock/unlock · `t` transfer · `u` undo last close · `R` retry comments · `o` browser · `r` repos · `esc` list |
+| Issue | `n/p` next/prev · `c` comment · `x` close · `X` comment+close · `d` close as duplicate · `l` labels · `a` assign me · `A` assignees · `+` react · `L` lock/unlock · `t` transfer · `u` undo last close · `R` retry comments · `o` browser · `r` repos · `?` all keys · `esc` list |
 | Comment | `ctrl+s` send · `ctrl+t` insert template · `ctrl+e` edit in `$EDITOR` · `esc` close (draft kept) |
 | Close | `c` completed · `n` not planned · `esc` cancel |
 | Pickers | type to filter · `↑/↓` move · `space` toggle (labels, assignees) · `enter` choose · `esc` cancel |

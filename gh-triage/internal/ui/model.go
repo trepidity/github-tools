@@ -13,6 +13,8 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
+	gansi "github.com/charmbracelet/glamour/ansi"
+	"github.com/charmbracelet/glamour/styles"
 	"github.com/cli/go-gh/v2/pkg/browser"
 	"github.com/trepidity/gh-triage/internal/config"
 	"github.com/trepidity/gh-triage/internal/github"
@@ -103,6 +105,7 @@ type Model struct {
 	confirm           confirmation      // pending y/n question while mode is modeConfirm
 	transferred       map[string]string // key → new URL for issues moved this session
 	busy              bool              // a GitHub write is in flight; keys are ignored
+	fullHelp          bool              // ? on the issue screen: every key instead of the short list
 	tally             [numActions]int
 
 	pk           picker
@@ -159,12 +162,36 @@ func newInput(prompt string) textinput.Model {
 	return ti
 }
 
+// readingWidth caps body text so long lines stay readable on wide terminals.
+const readingWidth = 100
+
 func newRenderer(style string, width int) *glamour.TermRenderer {
-	r, err := glamour.NewTermRenderer(glamour.WithStandardStyle(style), glamour.WithWordWrap(max(width-4, 20)))
+	styleOpt := glamour.WithStandardStyle(style)
+	if cfg, ok := readerStyle(style); ok {
+		styleOpt = glamour.WithStyles(cfg)
+	}
+	r, err := glamour.NewTermRenderer(styleOpt, glamour.WithWordWrap(max(min(width-4, readingWidth), 20)))
 	if err != nil {
 		return nil
 	}
 	return r
+}
+
+// readerStyle is glamour's dark or light style with quieter inline code: a soft color
+// instead of a padded red block, so code spans read as part of the sentence.
+func readerStyle(style string) (gansi.StyleConfig, bool) {
+	var cfg gansi.StyleConfig
+	var code string
+	switch style {
+	case "dark":
+		cfg, code = styles.DarkStyleConfig, "117"
+	case "light":
+		cfg, code = styles.LightStyleConfig, "25"
+	default:
+		return cfg, false
+	}
+	cfg.Code = gansi.StyleBlock{StylePrimitive: gansi.StylePrimitive{Color: &code}}
+	return cfg, true
 }
 
 // RepoQuery is the queue for one repo: its open issues.
@@ -331,6 +358,9 @@ func (m *Model) keyIssue(k tea.KeyMsg) tea.Cmd {
 		return m.openReactions()
 	case "r":
 		return m.openSwitcher()
+	case "?":
+		m.fullHelp = !m.fullHelp
+		return nil
 	case "L":
 		return m.startLock()
 	case "t":
