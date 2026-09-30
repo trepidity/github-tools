@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/trepidity/gh-triage/internal/ui"
 )
 
 // Protects: on a wide terminal the issue body wraps at a readable width instead of
@@ -53,5 +54,27 @@ func TestIssueHelp_question_mark_shows_every_key_without_truncating(t *testing.T
 	}
 	if v := text(press(t, m, "?")); strings.Contains(v, "t transfer") {
 		t.Fatalf("? again should hide the full help:\n%s", v)
+	}
+}
+
+// Protects: body lines break only between words — glamour's own wrapping cut
+// "implementation.md" into "implementation." / "md" when it landed near the edge.
+func TestIssueBody_breaks_lines_only_between_words(t *testing.T) {
+	f := threeIssues(t)
+	f.open[0].Body = "**Normalized local location:** `docs/superpowers/specs/2026-09-30-json-removal-track-j-implementation.md` § Decision gaps and blockers, TJ-Q1."
+	m := start(t, f, ui.Options{Query: "repo:o/r", Style: "dark"})
+	m = send(t, m, tea.WindowSizeMsg{Width: 146, Height: 40})
+
+	if v := text(press(t, m, "enter")); !strings.Contains(v, "docs/superpowers/specs/2026-09-30-json-removal-track-j-implementation.md") {
+		t.Fatalf("path split across lines:\n%s", v)
+	}
+}
+
+// Protects: the body starts right under the header rule instead of after a blank line.
+func TestIssueBody_starts_directly_under_the_header(t *testing.T) {
+	m := start(t, threeIssues(t), repoOpts)
+
+	if v := lines(press(t, m, "enter")); !strings.Contains(v[3], "No description provided") {
+		t.Fatalf("first body line = %q", v[3])
 	}
 }

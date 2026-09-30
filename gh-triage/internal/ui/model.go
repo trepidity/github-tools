@@ -142,7 +142,7 @@ func New(client github.Client, opts Options) Model {
 		viewport: viewport.New(80, 20),
 		editor:   newEditor(),
 	}
-	m.renderer = newRenderer(opts.Style, m.width)
+	m.renderer = newRenderer(opts.Style)
 	m.positions = map[string]config.Position{}
 	for q, p := range opts.Positions {
 		m.positions[q] = p
@@ -165,12 +165,13 @@ func newInput(prompt string) textinput.Model {
 // readingWidth caps body text so long lines stay readable on wide terminals.
 const readingWidth = 100
 
-func newRenderer(style string, width int) *glamour.TermRenderer {
+// newRenderer renders markdown unwrapped; wrapBody wraps it to the screen.
+func newRenderer(style string) *glamour.TermRenderer {
 	styleOpt := glamour.WithStandardStyle(style)
 	if cfg, ok := readerStyle(style); ok {
 		styleOpt = glamour.WithStyles(cfg)
 	}
-	r, err := glamour.NewTermRenderer(styleOpt, glamour.WithWordWrap(max(min(width-4, readingWidth), 20)))
+	r, err := glamour.NewTermRenderer(styleOpt, glamour.WithWordWrap(0))
 	if err != nil {
 		return nil
 	}
@@ -212,7 +213,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		m.renderer = newRenderer(m.opts.Style, m.width)
 		m.refreshIssue()
 	case searchLoadedMsg:
 		cmd = m.onSearchLoaded(msg)
