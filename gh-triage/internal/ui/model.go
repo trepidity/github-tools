@@ -50,6 +50,7 @@ const (
 	modePicker
 	modeDupRef
 	modeConfirm
+	modeJump
 )
 
 // prefetchWindow is how close the cursor may get to the end of the loaded issues
@@ -80,10 +81,12 @@ type Model struct {
 	loadingPage   bool
 
 	// list screen
-	filter  textinput.Model
-	visible []int // indices into issues that pass the filter
-	cursor  int   // index into visible; shared by both screens
-	offset  int   // first row drawn in the list
+	filter     textinput.Model
+	visible    []int  // indices into issues that pass the filter
+	cursor     int    // index into visible; shared by both screens
+	offset     int    // first row drawn in the list
+	jumpDigits string // Vim number prefix or : command
+	jumpTarget int    // issue number being sought across pages; zero means idle
 
 	// issue screen
 	comments        map[string][]github.Comment // present = loaded
@@ -256,6 +259,8 @@ func (m *Model) onKey(k tea.KeyMsg) tea.Cmd {
 		return m.keyDupRef(k)
 	case modeConfirm:
 		return m.keyConfirm(k)
+	case modeJump:
+		return m.keyJump(k)
 	}
 	if m.screen == screenIssue {
 		return m.keyIssue(k)
@@ -264,7 +269,23 @@ func (m *Model) onKey(k tea.KeyMsg) tea.Cmd {
 }
 
 func (m *Model) keyList(k tea.KeyMsg) tea.Cmd {
+	// Any new list command cancels a seek; an in-flight page may still finish.
+	if m.jumpTarget != 0 {
+		m.jumpTarget, m.status = 0, ""
+	}
+	if m.editJumpDigits(k) {
+		m.resume = nil
+		return nil
+	}
+	if k.String() == "G" && m.jumpDigits != "" {
+		return m.startJump()
+	}
+	m.jumpDigits = ""
 	switch k.String() {
+	case ":":
+		m.mode, m.resume = modeJump, nil
+	case "esc":
+		m.status = ""
 	case "q":
 		return tea.Quit
 	case "r":
@@ -443,6 +464,7 @@ func (m *Model) indexOf(key string) int {
 // startSearch replaces the queue with the results of q.
 func (m *Model) startSearch(q string) tea.Cmd {
 	m.gen++
+	m.jumpDigits, m.jumpTarget = "", 0
 	m.query = issueQuery(q)
 	m.resume = nil
 	if p, ok := m.positions[m.query]; ok {
@@ -490,6 +512,7 @@ func (m *Model) onSearchLoaded(msg searchLoadedMsg) tea.Cmd {
 	if msg.err != nil {
 		m.status = "search failed: " + firstLine(msg.err.Error())
 		m.resume = nil
+		m.jumpTarget = 0
 		return nil
 	}
 	seen := make(map[string]bool, len(m.issues)+len(msg.issues))
@@ -509,6 +532,9 @@ func (m *Model) onSearchLoaded(msg searchLoadedMsg) tea.Cmd {
 	}
 	m.hasMore = msg.hasMore && added > 0 // a page of only repeats would request itself forever
 	m.applyFilter()
+	if m.jumpTarget != 0 {
+		return m.seekJump()
+	}
 	if m.resume != nil {
 		return m.seekResume()
 	}
