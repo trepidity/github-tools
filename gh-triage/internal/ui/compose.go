@@ -38,13 +38,17 @@ func (m *Model) openTemplates() tea.Cmd {
 
 // openEditor hands the draft to $EDITOR (then $VISUAL, then vi) and takes back what it saved.
 func (m *Model) openEditor() tea.Cmd {
+	return m.openTextEditor(m.editor.Value())
+}
+
+func (m *Model) openTextEditor(draft string) tea.Cmd {
 	f, err := os.CreateTemp("", "gh-triage-*.md")
 	if err != nil {
 		m.status = "editor: " + firstLine(err.Error())
 		return nil
 	}
 	path := f.Name()
-	_, werr := f.WriteString(m.editor.Value())
+	_, werr := f.WriteString(draft)
 	if cerr := f.Close(); werr != nil || cerr != nil {
 		os.Remove(path)
 		m.status = "editor: could not write the draft"
@@ -77,5 +81,9 @@ func (m *Model) onEditorDone(msg editorDoneMsg) {
 		m.status = "editor exited with error: " + firstLine(msg.err.Error()) // draft unchanged
 		return
 	}
-	m.editor.SetValue(strings.TrimRight(msg.text, "\n"))
+	if m.mode == modeCreate && !m.creatingRepo {
+		m.issueDraft.body.SetValue(strings.TrimRight(msg.text, "\n"))
+	} else {
+		m.editor.SetValue(strings.TrimRight(msg.text, "\n"))
+	}
 }

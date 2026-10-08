@@ -73,6 +73,10 @@ func (r CloseReason) String() string {
 
 // Client is everything the UI needs from GitHub.
 type Client interface {
+	CreateIssue(ctx context.Context, repo Repo, title, body string) (Issue, error)
+	// CreateRepo uses the signed-in account when owner is empty, otherwise that
+	// account or an organization. It returns GitHub's canonical repository name.
+	CreateRepo(ctx context.Context, owner, name, description string, private bool) (Repo, error)
 	// SearchIssues returns the newest matching issues created at or before `before`
 	// (zero = no bound). hasMore reports that older matches may remain.
 	SearchIssues(ctx context.Context, query string, before time.Time) (issues []Issue, hasMore bool, err error)

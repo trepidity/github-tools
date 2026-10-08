@@ -41,11 +41,34 @@ gh triage --query "org:foo assignee:@me" # any GitHub issue search
 
 | Screen | Keys |
 |---|---|
-| List | `j/k` move · `enter` open · `146G` or `:146` then `enter` jump to issue #146 · `/` filter · `s` search (saved or typed) · `r` repos · `u` undo last close · `q` quit |
-| Issue | `n/p` next/prev · `c` comment · `x` close · `X` comment+close · `d` close as duplicate · `l` labels · `a` assign me · `A` assignees · `+` react · `L` lock/unlock · `t` transfer · `u` undo last close · `R` retry comments · `o` browser · `r` repos · `?` all keys · `esc` list |
+| List | `N` new issue · `ctrl+r` new repo · `j/k` move · `enter` open · `146G` or `:146` then `enter` jump to issue #146 · `/` filter · `s` search (saved or typed) · `r` repos · `u` undo last close · `q` quit |
+| Issue | `N` new issue · `ctrl+r` new repo · `n/p` next/prev · `c` comment · `x` close · `X` comment+close · `d` close as duplicate · `l` labels · `a` assign me · `A` assignees · `+` react · `L` lock/unlock · `t` transfer · `u` undo last close · `R` retry comments · `o` browser · `r` repos · `?` all keys · `esc` list |
+| Create | `tab`/`shift+tab` fields · `ctrl+s` create · `ctrl+e` issue body in `$EDITOR` · `esc` close (draft kept) |
 | Comment | `ctrl+s` send · `ctrl+t` insert template · `ctrl+e` edit in `$EDITOR` · `esc` close (draft kept) |
 | Close | `c` completed · `n` not planned · `esc` cancel |
 | Pickers | type to filter · `↑/↓` move · `space` toggle (labels, assignees) · `enter` choose · `esc` cancel |
+
+### Create issues and repositories
+
+Press `N` from the list or an issue to enter a repository (`owner/name`), title and
+optional Markdown body. The destination starts with the current issue's repository
+or a single repository from the search; cross-repository lists require a destination.
+After creation, the app opens the returned issue in its repository's open-issue queue,
+even while GitHub's search index is catching up.
+
+Press `ctrl+r` from the list, issue or repository switcher to create a repository.
+Leave owner blank for your signed-in account, or enter your login or an organization.
+Enter a name and optional description, then tab to visibility and press `space` to
+switch between **private** (the default) and **public**. `ctrl+s` creates the repository
+with issues enabled, adds it to the switcher and opens its issue queue. This creates
+the remote repository; it does not clone it or push local files.
+
+Creation uses your existing `gh` authentication. GitHub permission and validation
+errors remain on the form with your draft intact. `esc` also keeps each creation draft
+for the current session; quitting discards unsent drafts. Successful creations appear
+in the exit summary.
+
+### Navigation
 
 Jumps select an issue by its GitHub number in the current filtered list, loading more pages
 if needed. Press `enter` to open it. `esc` or another list command cancels a pending jump;

@@ -54,6 +54,7 @@ const (
 	modeDupRef
 	modeConfirm
 	modeJump
+	modeCreate
 )
 
 // prefetchWindow is how close the cursor may get to the end of the loaded issues
@@ -128,9 +129,13 @@ type Model struct {
 	fullHelp          bool              // ? on the issue screen: every key instead of the short list
 	tally             [numActions]int
 
-	pk           picker
-	repos        []github.Repo // every accessible repo; nil until the cache or API answers
-	reposFetched bool          // ListRepos already requested this session
+	pk                    picker
+	repos                 []github.Repo // every accessible repo; nil until the cache or API answers
+	reposFetched          bool          // ListRepos already requested this session
+	createdRepos          []github.Repo // confirmed this session; retained across late repo reads
+	issueDraft, repoDraft creationForm
+	creatingRepo          bool
+	createReturn          mode
 }
 
 type (
@@ -282,6 +287,14 @@ func (m *Model) onKey(k tea.KeyMsg) tea.Cmd {
 		return m.keyConfirm(k)
 	case modeJump:
 		return m.keyJump(k)
+	case modeCreate:
+		return m.keyCreate(k)
+	}
+	if k.String() == "N" {
+		return m.startCreation(false)
+	}
+	if k.String() == "ctrl+r" {
+		return m.startCreation(true)
 	}
 	if m.screen == screenIssue {
 		return m.keyIssue(k)

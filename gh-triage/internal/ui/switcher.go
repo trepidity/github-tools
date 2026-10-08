@@ -58,7 +58,8 @@ func (m *Model) repoItems() []pickerItem {
 
 // isRepoPicker reports whether the open picker lists repos (and so refreshes with them).
 func (m *Model) isRepoPicker() bool {
-	return m.mode == modePicker && (m.pk.kind == pickRepo || m.pk.kind == pickTransfer)
+	visible := m.mode == modePicker || (m.mode == modeCreate && m.createReturn == modePicker)
+	return visible && (m.pk.kind == pickRepo || m.pk.kind == pickTransfer)
 }
 
 // loadRepos refreshes the repo list from GitHub once per session.
@@ -83,15 +84,19 @@ func (m *Model) onReposLoaded(msg reposLoadedMsg) {
 		m.status = "loading repos failed: " + firstLine(msg.err.Error())
 		return
 	}
-	m.repos = msg.repos
+	m.repos = orderRepos(m.createdRepos, msg.repos)
+	m.cacheRepos()
+	if m.isRepoPicker() {
+		m.pk.setItems(m.repoItems()) // keeps the highlight on the same repo as rows shift
+	}
+}
+
+func (m *Model) cacheRepos() {
 	if m.opts.RepoCache != "" {
-		names := make([]string, len(msg.repos))
-		for i, r := range msg.repos {
+		names := make([]string, len(m.repos))
+		for i, r := range m.repos {
 			names[i] = r.String()
 		}
 		_ = config.WriteRepoCache(m.opts.RepoCache, names) // best effort; next run refetches anyway
-	}
-	if m.isRepoPicker() {
-		m.pk.setItems(m.repoItems()) // keeps the highlight on the same repo as rows shift
 	}
 }

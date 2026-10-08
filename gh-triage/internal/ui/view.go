@@ -19,13 +19,15 @@ var (
 )
 
 const (
-	listHelp    = "j/k move · enter open · #G/:# jump · / filter · s search · r repos · u undo · q quit"
+	listHelp    = "N new issue · ctrl+r new repo · j/k move · enter open · #G/:# jump · / filter · s search · r repos · u undo · q quit"
 	issueHelp   = "esc list · n/p next/prev · c comment · x close · ? more"
 	commentHelp = "ctrl+s send · ctrl+t template · ctrl+e $EDITOR · esc cancel"
 )
 
 func (m Model) View() string {
 	switch {
+	case m.mode == modeCreate:
+		return m.viewCreate()
 	case m.mode == modePicker:
 		return m.viewPicker()
 	case m.screen == screenIssue:
@@ -36,6 +38,14 @@ func (m Model) View() string {
 
 // layout sizes the viewport and list scroll to the terminal. Called after every Update.
 func (m *Model) layout() {
+	if m.mode == modeCreate {
+		f := m.creation()
+		for i := range f.fields {
+			f.fields[i].Width = max(m.width-15, 10)
+		}
+		f.body.SetWidth(max(m.width, 20))
+		f.body.SetHeight(max(min(m.height-10, 16), 3))
+	}
 	m.editor.SetWidth(m.width)
 	m.viewport.Width = m.width
 	m.viewport.Height = max(m.height-m.chromeHeight(), 3)
@@ -49,7 +59,7 @@ func (m *Model) layout() {
 }
 
 // issueKeys is the full issue-screen key list shown by ?.
-var issueKeys = []string{"esc list", "n/p next/prev", "c comment", "x close", "X comment+close", "d dup",
+var issueKeys = []string{"esc list", "N new issue", "ctrl+r new repo", "n/p next/prev", "c comment", "x close", "X comment+close", "d dup",
 	"l labels", "a/A assign", "+ react", "L lock", "t transfer", "u undo", "R retry comments",
 	"o browser", "r repos", "? less"}
 
@@ -95,8 +105,12 @@ func wrapKeys(keys []string, width int) []string {
 	return append(lines, line)
 }
 
+func (m Model) listHelp() string {
+	return strings.Join(wrapKeys(strings.Split(listHelp, " · "), m.width), "\n")
+}
+
 // listRows is how many issue rows fit: everything but the header, status and help lines.
-func (m Model) listRows() int { return max(m.height-3, 1) }
+func (m Model) listRows() int { return max(m.height-3-strings.Count(m.listHelp(), "\n"), 1) }
 
 func (m Model) viewList() string {
 	var b strings.Builder
@@ -118,7 +132,7 @@ func (m Model) viewList() string {
 	for vi := m.offset; vi < len(m.visible) && vi < m.offset+m.listRows(); vi++ {
 		b.WriteString(m.row(vi, l) + "\n")
 	}
-	b.WriteString(m.footer(listHelp))
+	b.WriteString(m.footer(m.listHelp()))
 	return b.String()
 }
 

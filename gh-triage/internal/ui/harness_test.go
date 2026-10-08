@@ -16,6 +16,12 @@ import (
 
 // fakeClient stands in for GitHub. Commands run synchronously in tests, so no locking.
 type fakeClient struct {
+	createdIssues      []github.Issue
+	createdRepos       []github.Repo
+	createErr          error
+	createdPrivate     bool
+	createdDescription string
+
 	open       []github.Issue // GitHub's search index for the queue, newest first
 	staleIndex bool           // closed issues stay in search results (GitHub's index lags)
 	searches   int            // SearchIssues calls

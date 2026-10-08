@@ -17,11 +17,13 @@ const (
 	actLocked
 	actUnlocked
 	actTransferred
+	actIssueCreated
+	actRepoCreated
 	numActions
 )
 
 // actionNames are the summary words, in summary order.
-var actionNames = [numActions]string{"closed", "commented", "labeled", "assigned", "reacted", "locked", "unlocked", "transferred"}
+var actionNames = [numActions]string{"closed", "commented", "labeled", "assigned", "reacted", "locked", "unlocked", "transferred", "issues created", "repos created"}
 
 func (m *Model) count(a action) { m.tally[a]++ }
 

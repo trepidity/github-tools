@@ -111,6 +111,9 @@ func (m *Model) closePicker() tea.Cmd {
 }
 
 func (m *Model) keyPicker(k tea.KeyMsg) tea.Cmd {
+	if m.pk.kind == pickRepo && k.String() == "ctrl+r" {
+		return m.startCreation(true)
+	}
 	p := &m.pk
 	switch k.String() {
 	case "esc":
@@ -250,6 +253,8 @@ func (m Model) viewPicker() string {
 
 func (p picker) help() string {
 	switch {
+	case p.kind == pickRepo:
+		return "ctrl+r new repo · type to filter · ↑/↓ move · enter choose · esc cancel"
 	case p.multi:
 		return "type to filter · ↑/↓ move · space toggle · enter apply · esc cancel"
 	case p.freeText:
