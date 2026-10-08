@@ -19,7 +19,7 @@ var (
 )
 
 const (
-	listHelp    = "j/k move · enter open · / filter · s search · r repos · u undo close · q quit"
+	listHelp    = "j/k move · enter open · #G/:# jump · / filter · s search · r repos · u undo · q quit"
 	issueHelp   = "esc list · n/p next/prev · c comment · x close · ? more"
 	commentHelp = "ctrl+s send · ctrl+t template · ctrl+e $EDITOR · esc cancel"
 )
@@ -289,6 +289,10 @@ func (m Model) footer(help string) string {
 		line = statusStyle.Render(m.status)
 	case m.mode == modeFilter:
 		line = m.filter.View()
+	case m.mode == modeJump:
+		line = ":" + m.jumpDigits + " · enter jumps to issue · esc cancels"
+	case m.screen == screenList && m.jumpDigits != "":
+		line = m.jumpDigits + " · G jumps to issue · esc cancels"
 	case m.mode == modeConfirm:
 		line = statusStyle.Render(m.confirm.question + " (y/n)")
 	case m.mode == modeDupRef:

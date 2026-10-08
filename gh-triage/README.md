@@ -41,11 +41,15 @@ gh triage --query "org:foo assignee:@me" # any GitHub issue search
 
 | Screen | Keys |
 |---|---|
-| List | `j/k` move · `enter` open · `/` filter · `s` search (saved or typed) · `r` repos · `u` undo last close · `q` quit |
+| List | `j/k` move · `enter` open · `146G` or `:146` then `enter` jump to issue #146 · `/` filter · `s` search (saved or typed) · `r` repos · `u` undo last close · `q` quit |
 | Issue | `n/p` next/prev · `c` comment · `x` close · `X` comment+close · `d` close as duplicate · `l` labels · `a` assign me · `A` assignees · `+` react · `L` lock/unlock · `t` transfer · `u` undo last close · `R` retry comments · `o` browser · `r` repos · `?` all keys · `esc` list |
 | Comment | `ctrl+s` send · `ctrl+t` insert template · `ctrl+e` edit in `$EDITOR` · `esc` close (draft kept) |
 | Close | `c` completed · `n` not planned · `esc` cancel |
 | Pickers | type to filter · `↑/↓` move · `space` toggle (labels, assignees) · `enter` choose · `esc` cancel |
+
+Jumps select an issue by its GitHub number in the current filtered list, loading more pages
+if needed. Press `enter` to open it. `esc` or another list command cancels a pending jump;
+`backspace` edits the number. In searches spanning repositories, the first matching number wins.
 
 Quitting prints a one-line summary (`closed 12 · commented 5 · …`). Reopening the same repo or
 query puts you back on the last issue you viewed.
