@@ -126,3 +126,90 @@ func TestIssueBody_starts_directly_under_the_header(t *testing.T) {
 		t.Fatalf("first body line = %q", v[3])
 	}
 }
+
+// Protects: long cells wrap inside their column instead of wrapping the whole
+// rendered row and separating its label from the decision.
+func TestIssueBody_tables_keep_columns_aligned_when_resized(t *testing.T) {
+	for _, style := range []string{"notty", "dark", "light"} {
+		for _, width := range []int{60, 120, 150} {
+			t.Run(fmt.Sprintf("%s/%d", style, width), func(t *testing.T) {
+				f := threeIssues(t)
+				f.open[0].Body = "## Owner decisions\n\n| # | Decision |\n|---|---|\n| Rows | Phone lists are **single full-width rows**. Tapping a row opens a dialog holding its actions; no text-left/button-right rows. |\n| Doc delete | Documents are not deletable in this work. |\n| Archive | Archive is not destructive. One tap plus Undo, always restorable. |\n\nAfter the table."
+				m := start(t, f, ui.Options{Query: "repo:o/r", Style: style})
+				m = press(t, m, "enter")
+				m = send(t, m, tea.WindowSizeMsg{Width: width, Height: 60})
+				v := text(m)
+				if !strings.Contains(v, "Doc delete") || !strings.Contains(v, "After the table.") || strings.Contains(v, "GHTRIAGETABLE") {
+					t.Fatalf("table lost content:\n%s", v)
+				}
+				separator := -1
+				divider := "│"
+				if style == "notty" {
+					divider = "|"
+				}
+				rows := 0
+				rules := 0
+				lastRule := ""
+				for _, line := range strings.Split(v, "\n") {
+					if ansi.StringWidth(line) > width {
+						t.Fatalf("line exceeds terminal width: %q", line)
+					}
+					if pos := strings.Index(line, divider); pos >= 0 {
+						if separator >= 0 && pos != separator {
+							t.Fatalf("column separator moved: %q", line)
+						}
+						separator = pos
+						rows++
+					}
+					if separator >= 0 && strings.ContainsAny(line, "─-") && strings.Trim(line, " ─┼-+|\t") == "" {
+						if lastRule != "" && line != lastRule {
+							t.Fatalf("row rule differs from header rule: %q != %q", line, lastRule)
+						}
+						lastRule = line
+						rules++
+					}
+					if strings.Contains(line, "Doc delete") && rules != 2 {
+						t.Fatalf("missing separator before Doc delete:\n%s", v)
+					}
+					if strings.Contains(line, "Archive is") && rules != 3 {
+						t.Fatalf("missing separator before Archive:\n%s", v)
+					}
+				}
+				if rules != 3 {
+					t.Fatalf("want header rule and two body row rules, got %d:\n%s", rules, v)
+				}
+				if rows < 4 {
+					t.Fatalf("missing table rows:\n%s", v)
+				}
+			})
+		}
+	}
+}
+
+func TestIssueBody_table_boundaries_preserve_surrounding_markdown(t *testing.T) {
+	for _, body := range []string{
+		"Before.\n\n| A | B |\n|---|---|\n\nAfter.",
+		"Before.\n\n| A | B |\n|---|---|",
+		"Before.\n\n| A | B |\n|---|---|\n| left \\| right | **value** |\n\nAfter.\n\n| C | D |\n|---|---|\n| next | last |",
+		"Before.\n\n```text\n| A | B |\n|---|---|\n```\n\nAfter.",
+	} {
+		f := threeIssues(t)
+		f.open[0].Body = body
+		m := start(t, f, repoOpts)
+		m = send(t, m, tea.WindowSizeMsg{Width: 80, Height: 60})
+		v := text(press(t, m, "enter"))
+		if !strings.Contains(v, "Before.") || (strings.Contains(body, "After.") && !strings.Contains(v, "After.")) || strings.Contains(v, "GHTRIAGETABLE") {
+			t.Fatalf("lost surrounding content:\n%s", v)
+		}
+	}
+}
+
+func TestIssueBody_table_reference_links_keep_their_destination(t *testing.T) {
+	f := threeIssues(t)
+	f.open[0].Body = "| Topic | Decision |\n|---|---|\n| Docs | [Read the guide][guide] |\n\n[guide]: https://example.com/guide \"Guide\"\n\nAfter."
+	m := start(t, f, ui.Options{Query: "repo:o/r", Style: "dark"})
+	m = send(t, m, tea.WindowSizeMsg{Width: 80, Height: 40})
+	if v := text(press(t, m, "enter")); !strings.Contains(v, "https://example.com/guide") || !strings.Contains(v, "After.") {
+		t.Fatalf("reference link lost its destination:\n%s", v)
+	}
+}

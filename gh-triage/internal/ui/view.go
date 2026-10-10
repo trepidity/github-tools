@@ -399,13 +399,7 @@ func (m *Model) refreshIssue() {
 }
 
 func (m *Model) render(md string) string {
-	out := md
-	if m.renderer != nil {
-		if r, err := m.renderer.Render(md); err == nil {
-			out = r
-		}
-	}
-	return wrapBody(out, max(min(m.width-2, readingWidth+2), 20)) // +2: the document margin
+	return m.renderBody(md, max(min(m.width-2, readingWidth+2), 20)) // +2: the document margin
 }
 
 func truncate(s string, width int) string { return ansi.Truncate(s, width, "…") }
