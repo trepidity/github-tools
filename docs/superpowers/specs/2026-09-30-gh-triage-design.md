@@ -1,5 +1,8 @@
 # gh-triage — Design
 
+Historical v1 design. Pull-request review, approval, and merging were added after this
+design; see the [current usage documentation](../../../gh-triage/README.md).
+
 Date: 2026-09-30
 Status: Approved in conversation, pending spec review
 

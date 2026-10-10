@@ -20,10 +20,16 @@ from repos whose names start with `gh-`.)
 
 ### Update
 
+Run these commands from the checkout's `gh-triage` directory:
+
 ```bash
 git pull
 go build -o gh-triage .
 ```
+
+The local extension already points to this directory, so rebuilding updates `gh triage`
+without reinstalling it. Restart any running session to use the new build. Verify the
+installation with `gh extension list` and `gh triage --help`.
 
 ### Uninstall
 
@@ -43,7 +49,7 @@ gh triage --query "repo:owner/repo is:pr is:open" # review pull requests
 | Screen | Keys |
 |---|---|
 | List | `P` toggle issues/PRs · `N` new issue · `ctrl+r` new repo · `j/k` move · `enter` open · `146G` or `:146` then `enter` jump to #146 · `/` filter · `s` search (saved or typed) · `r` repos · `u` undo last close · `q` quit |
-| Issue | `N` new issue · `ctrl+r` new repo · `n/p` next/prev · `c` comment · `x` close · `X` comment+close · `d` close as duplicate · `l` labels · `a` assign me · `A` assignees · `+` react · `L` lock/unlock · `t` transfer · `u` undo last close · `R` retry comments · `o` browser · `r` repos · `?` all keys · `esc` list |
+| Issue | `P` toggle issues/PRs · `N` new issue · `ctrl+r` new repo · `n/p` next/prev · `c` comment · `x` close · `X` comment+close · `d` close as duplicate · `l` labels · `a` assign me · `A` assignees · `+` react · `L` lock/unlock · `t` transfer · `u` undo last close · `R` retry comments · `o` browser · `r` repos · `?` all keys · `esc` list |
 | Create | `tab`/`shift+tab` fields · `ctrl+s` create · `ctrl+e` issue body in `$EDITOR` · `esc` close (draft kept) |
 | Pull request | `f` files/conversation · `v` review/approve · `M` merge · `R` refresh · `n/p` next/prev · `c` comment · `o` browser · `P` issues/PRs · `esc` list |
 | Review | Choose Comment, Approve, or Request changes, then `ctrl+s` submit · `ctrl+e` `$EDITOR` · `esc` cancel (draft kept) |
@@ -90,6 +96,9 @@ Press `v` and choose **Comment**, **Approve**, or **Request changes**. Enter rev
 and press `ctrl+s` to submit; approval can have an empty body. Review drafts survive
 canceling and failed submissions. Reviews are attached to the displayed commit, and
 new commits detected before submission require reloading and reviewing again.
+If submission reports new commits, press `esc` to keep the draft, `R` to reload,
+and `f` to inspect the changes before opening `v` again. Review drafts last for the
+current session; quitting discards them.
 
 Press `M` to choose **Merge commit**, **Squash and merge**, or **Rebase and merge**,
 then confirm with `y` (`n` or `esc` cancels). The merge request includes the reviewed
@@ -117,6 +126,7 @@ pins:                 # listed first in the repo switcher
 queries:              # listed first when you press s, in this order
   mine: "assignee:@me is:open"
   stale: "org:foo is:open updated:<2026-01-01"
+  reviews: "is:pr is:open review-requested:@me"
 templates:            # ctrl+t in the comment editor
   repro: "Thanks! Could you share steps to reproduce?"
 watch:                # optional; absent or omitted interval disables polling
@@ -129,6 +139,9 @@ are marked `●` until you view them. Your own comments, labels, closes and othe
 count as activity, and a poll never overwrites an edit you just made with an older copy from
 GitHub's search index. If the issue on screen changes, its thread reloads. The selected issue
 stays selected.
+
+Watching also works for PR searches. PR files and review details refresh when you
+open the PR or press `R`; polling updates the queue and discussion comments.
 
 Each poll reads only what changed since the last one (re-reading two minutes back, because the
 search index can list updates out of order), so a burst larger than one search page is read in
