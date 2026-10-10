@@ -39,6 +39,74 @@ func (f *fakeClient) CreateRepo(_ context.Context, owner, name, description stri
 
 func tab(t *testing.T, m tea.Model) tea.Model { return send(t, m, tea.KeyMsg{Type: tea.KeyTab}) }
 
+func TestCreateRepo_selects_organization_and_preserves_selection(t *testing.T) {
+	f := &fakeClient{organizations: []string{"alpha", "team"}}
+	m := start(t, f, ui.Options{})
+	m = send(t, m, tea.KeyMsg{Type: tea.KeyCtrlR})
+	if !strings.Contains(text(m), "alpha") || !strings.Contains(text(m), "team") || !strings.Contains(text(m), "personal") {
+		t.Fatalf("missing owner choices: %s", text(m))
+	}
+	m = press(t, m, "down", "down", "esc")
+	m = send(t, m, tea.KeyMsg{Type: tea.KeyCtrlR})
+	if !strings.Contains(text(m), "owner: team") {
+		t.Fatalf("selection lost: %s", text(m))
+	}
+	m = press(t, m, "enter", "new-project", "ctrl+s")
+	if len(f.createdRepos) != 1 || f.createdRepos[0].String() != "team/new-project" {
+		t.Fatalf("wrong destination: %v", f.createdRepos)
+	}
+}
+
+func TestCreateRepo_owner_navigation_returns_to_personal_account(t *testing.T) {
+	f := &fakeClient{organizations: []string{"team"}}
+	m := start(t, f, ui.Options{})
+	m = send(t, m, tea.KeyMsg{Type: tea.KeyCtrlR})
+	m = press(t, m, "down")
+	m = send(t, m, tea.KeyMsg{Type: tea.KeyUp})
+	m = press(t, m, "enter", "personal-project", "ctrl+s")
+	if len(f.createdRepos) != 1 || f.createdRepos[0].String() != "me/personal-project" {
+		t.Fatalf("wrong destination: %v", f.createdRepos)
+	}
+}
+
+func TestCreateRepo_organization_failure_allows_manual_entry_and_retry(t *testing.T) {
+	f := &fakeClient{organizationsErr: errors.New("permission denied")}
+	m := start(t, f, ui.Options{})
+	m = send(t, m, tea.KeyMsg{Type: tea.KeyCtrlR})
+	if !strings.Contains(text(m), "organizations unavailable") {
+		t.Fatalf("missing load error: %s", text(m))
+	}
+	m = press(t, m, "manual-team")
+	f.organizationsErr = nil
+	f.organizations = []string{"another-team"}
+	m = send(t, m, tea.KeyMsg{Type: tea.KeyCtrlR})
+	if strings.Contains(text(m), "unavailable") || !strings.Contains(text(m), "another-team") || !strings.Contains(text(m), "owner: manual-team") {
+		t.Fatalf("retry lost manual owner or failed: %s", text(m))
+	}
+	m = press(t, m, "enter", "project", "ctrl+s")
+	if len(f.createdRepos) != 1 || f.createdRepos[0].String() != "manual-team/project" {
+		t.Fatalf("wrong destination: %v", f.createdRepos)
+	}
+}
+
+func TestCreateRepo_late_organizations_do_not_replace_draft_or_reopen_form(t *testing.T) {
+	f := &fakeClient{organizations: []string{"team"}}
+	m := start(t, f, ui.Options{})
+	m, load := m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	if !strings.Contains(text(m), "loading organizations") {
+		t.Fatalf("missing loading state: %s", text(m))
+	}
+	m = press(t, m, "manual", "esc")
+	m = run(t, m, load)
+	if strings.Contains(text(m), "Create repository") {
+		t.Fatalf("late result reopened form: %s", text(m))
+	}
+	m = send(t, m, tea.KeyMsg{Type: tea.KeyCtrlR})
+	if !strings.Contains(text(m), "owner: manual") || !strings.Contains(text(m), "team") {
+		t.Fatalf("late result lost draft or options: %s", text(m))
+	}
+}
+
 // Consumer seam: real UI model with fake Client (the project's design Testing section).
 // Catches duplicate writes and losing the created issue while the search index lags.
 func TestCreateIssue_opens_confirmed_issue_once_even_with_stale_search(t *testing.T) {

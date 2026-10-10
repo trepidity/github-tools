@@ -136,6 +136,10 @@ type Model struct {
 	issueDraft, repoDraft creationForm
 	creatingRepo          bool
 	createReturn          mode
+	organizations         []string
+	organizationsLoaded   bool
+	organizationsLoading  bool
+	organizationsErr      error
 }
 
 type (
@@ -258,6 +262,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.onOptionsLoaded(msg)
 	case reposLoadedMsg:
 		m.onReposLoaded(msg)
+	case organizationsLoadedMsg:
+		m.organizationsLoading = false
+		m.organizationsErr = msg.err
+		if msg.err == nil {
+			m.organizations, m.organizationsLoaded = msg.orgs, true
+		}
 	case tea.KeyMsg:
 		cmd = m.onKey(msg)
 	}

@@ -88,6 +88,7 @@ type Client interface {
 	AddComment(ctx context.Context, repo Repo, number int, body string) (Comment, error)
 	CloseIssue(ctx context.Context, repo Repo, number int, reason CloseReason) error
 	ListRepos(ctx context.Context) ([]Repo, error)
+	ListOrganizations(ctx context.Context) ([]string, error)
 	CurrentUser(ctx context.Context) (string, error)
 	ListLabels(ctx context.Context, repo Repo) ([]string, error)
 	// SetLabels replaces the issue's labels and returns the set GitHub now has.

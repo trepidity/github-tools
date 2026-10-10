@@ -6,11 +6,22 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 )
 
 var repoName = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 var ownerName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*$`)
+
+func (g *REST) ListOrganizations(ctx context.Context) ([]string, error) {
+	raw, err := getAll[apiUser](ctx, g.c, "user/orgs?per_page=100")
+	if err != nil {
+		return nil, err
+	}
+	orgs := logins(raw)
+	slices.Sort(orgs)
+	return orgs, nil
+}
 
 // ValidateNewRepo rejects missing names and path/query syntax before any request.
 // GitHub owns remaining rules, availability and organization policy.

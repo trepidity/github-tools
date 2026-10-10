@@ -21,6 +21,8 @@ type fakeClient struct {
 	createErr          error
 	createdPrivate     bool
 	createdDescription string
+	organizations      []string
+	organizationsErr   error
 
 	open       []github.Issue // GitHub's search index for the queue, newest first
 	staleIndex bool           // closed issues stay in search results (GitHub's index lags)
@@ -123,6 +125,10 @@ func (f *fakeClient) CloseIssue(ctx context.Context, r github.Repo, n int, reaso
 func (f *fakeClient) ListRepos(context.Context) ([]github.Repo, error) { return f.repos, nil }
 
 func (f *fakeClient) CurrentUser(context.Context) (string, error) { return f.me, nil }
+
+func (f *fakeClient) ListOrganizations(context.Context) ([]string, error) {
+	return f.organizations, f.organizationsErr
+}
 
 func (f *fakeClient) ListLabels(context.Context, github.Repo) ([]string, error) { return f.labels, nil }
 

@@ -57,7 +57,10 @@ After creation, the app opens the returned issue in its repository's open-issue 
 even while GitHub's search index is catching up.
 
 Press `ctrl+r` from the list, issue or repository switcher to create a repository.
-Leave owner blank for your signed-in account, or enter your login or an organization.
+The owner field lists your signed-in account and organizations. Use `↑/↓` to choose,
+then `enter` or `tab` to continue. You can also type a login or organization directly;
+leave owner blank for your signed-in account. If loading organizations fails, `ctrl+r`
+in the owner field retries.
 Enter a name and optional description, then tab to visibility and press `space` to
 switch between **private** (the default) and **public**. `ctrl+s` creates the repository
 with issues enabled, adds it to the switcher and opens its issue queue. This creates

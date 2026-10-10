@@ -20,6 +20,23 @@ type creationForm struct {
 	private bool
 }
 
+type organizationsLoadedMsg struct {
+	orgs []string
+	err  error
+}
+
+func (m *Model) loadOrganizations() tea.Cmd {
+	if m.organizationsLoaded || m.organizationsLoading {
+		return nil
+	}
+	m.organizationsLoading, m.organizationsErr = true, nil
+	client := m.client
+	return m.fetch(func(ctx context.Context) tea.Msg {
+		orgs, err := client.ListOrganizations(ctx)
+		return organizationsLoadedMsg{orgs: orgs, err: err}
+	})
+}
+
 func (m *Model) creation() *creationForm {
 	if m.creatingRepo {
 		return &m.repoDraft
@@ -34,7 +51,7 @@ func (m *Model) startCreation(repo bool) tea.Cmd {
 		*f = creationForm{ready: true, private: true, body: newEditor()}
 		if repo {
 			f.fields = [3]textinput.Model{newInput("owner: "), newInput("name: "), newInput("description: ")}
-			f.fields[0].Placeholder = "signed-in account (or enter an organization)"
+			f.fields[0].Placeholder = "signed-in account"
 		} else {
 			f.fields = [3]textinput.Model{newInput("repo: "), newInput("title: "), newInput("")}
 			f.fields[0].Placeholder = "owner/name"
@@ -43,6 +60,9 @@ func (m *Model) startCreation(repo bool) tea.Cmd {
 		}
 	}
 	m.mode, m.status = modeCreate, ""
+	if repo {
+		return tea.Batch(m.focusCreation(), m.loadOrganizations())
+	}
 	return m.focusCreation()
 }
 
@@ -89,6 +109,21 @@ func (m *Model) focusCreation() tea.Cmd {
 
 func (m *Model) keyCreate(k tea.KeyMsg) tea.Cmd {
 	f := m.creation()
+	if m.creatingRepo && f.focus == 0 {
+		switch k.String() {
+		case "ctrl+r":
+			return m.loadOrganizations()
+		case "up", "down":
+			owners, selected := m.repoOwners()
+			if k.String() == "down" {
+				selected = (selected + 1) % len(owners)
+			} else {
+				selected = (selected - 1 + len(owners)) % len(owners)
+			}
+			f.fields[0].SetValue(owners[selected])
+			return nil
+		}
+	}
 	switch k.String() {
 	case "esc":
 		m.mode, m.status = m.createReturn, "creation draft kept"
@@ -185,6 +220,55 @@ func (m *Model) submitCreation() tea.Cmd {
 	})
 }
 
+// The empty owner selects the signed-in account. Keep manual owners in the
+// list so navigation remains predictable when membership discovery is limited.
+func (m Model) repoOwners() ([]string, int) {
+	owners := append([]string{""}, m.organizations...)
+	value := strings.TrimSpace(m.repoDraft.fields[0].Value())
+	for i, owner := range owners {
+		if strings.EqualFold(owner, value) {
+			return owners, i
+		}
+	}
+	return append(owners, value), len(owners)
+}
+
+func (m Model) viewRepoOwners() []string {
+	owners, selected := m.repoOwners()
+	lines := []string{"  ↑/↓ choose account or organization · or type an owner"}
+	// Keep the form usable even for accounts with many organizations.
+	limit := min(5, max(1, m.height-12))
+	start := max(0, min(selected-limit/2, len(owners)-limit))
+	end := min(len(owners), start+limit)
+	if start > 0 {
+		lines = append(lines, "  …")
+	}
+	for i := start; i < end; i++ {
+		label := owners[i]
+		if label == "" {
+			label = "signed-in account (personal)"
+		} else {
+			label += " (organization / owner)"
+		}
+		line := "  " + label
+		if i == selected {
+			line = selectedStyle.Render("› " + label)
+		}
+		lines = append(lines, line)
+	}
+	if end < len(owners) {
+		lines = append(lines, "  …")
+	}
+	if m.organizationsLoading {
+		lines = append(lines, "  loading organizations…")
+	} else if m.organizationsErr != nil {
+		lines = append(lines, "  organizations unavailable: "+firstLine(m.organizationsErr.Error()), "  ctrl+r retry · or type an organization")
+	} else if m.organizationsLoaded && len(m.organizations) == 0 {
+		lines = append(lines, "  no organizations found · you can type an organization")
+	}
+	return lines
+}
+
 func (m Model) viewCreate() string {
 	f := m.issueDraft
 	title := "Create issue"
@@ -192,7 +276,11 @@ func (m Model) viewCreate() string {
 		f = m.repoDraft
 		title = "Create repository"
 	}
-	lines := []string{headerStyle.Render(title), f.fields[0].View(), f.fields[1].View()}
+	lines := []string{headerStyle.Render(title), f.fields[0].View()}
+	if m.creatingRepo && f.focus == 0 {
+		lines = append(lines, m.viewRepoOwners()...)
+	}
+	lines = append(lines, f.fields[1].View())
 	if m.creatingRepo {
 		visibility := "private"
 		if !f.private {

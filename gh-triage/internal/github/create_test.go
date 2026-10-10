@@ -9,6 +9,27 @@ import (
 )
 
 // L1: the public GitHub wire contract; not a serializer round trip.
+func TestListOrganizations_paginates_and_sorts(t *testing.T) {
+	g, _ := newTestREST(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/user/orgs" || r.Method != http.MethodGet {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL)
+		}
+		if r.URL.Query().Get("page") == "2" {
+			fmt.Fprint(w, `[{"login":"alpha"}]`)
+			return
+		}
+		if r.URL.Query().Get("per_page") != "100" {
+			t.Error("missing page size")
+		}
+		w.Header().Set("Link", `<https://api.github.com/user/orgs?page=2>; rel="next"`)
+		fmt.Fprint(w, `[{"login":"zeta"}]`)
+	})
+	orgs, err := g.ListOrganizations(context.Background())
+	if err != nil || strings.Join(orgs, ",") != "alpha,zeta" {
+		t.Fatalf("organizations=%v, err=%v", orgs, err)
+	}
+}
+
 type creationClient interface {
 	CreateIssue(context.Context, Repo, string, string) (Issue, error)
 	CreateRepo(context.Context, string, string, string, bool) (Repo, error)
