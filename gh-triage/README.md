@@ -1,6 +1,6 @@
 # gh triage
 
-Work through GitHub issues one at a time from the terminal, without losing your place.
+Work through GitHub issues and pull requests from the terminal, without losing your place.
 
 ## Install
 
@@ -37,13 +37,16 @@ gh extension remove triage
 gh triage                                # pick a repo
 gh triage owner/repo                     # open issues in one repo
 gh triage --query "org:foo assignee:@me" # any GitHub issue search
+gh triage --query "repo:owner/repo is:pr is:open" # review pull requests
 ```
 
 | Screen | Keys |
 |---|---|
-| List | `N` new issue · `ctrl+r` new repo · `j/k` move · `enter` open · `146G` or `:146` then `enter` jump to issue #146 · `/` filter · `s` search (saved or typed) · `r` repos · `u` undo last close · `q` quit |
+| List | `P` toggle issues/PRs · `N` new issue · `ctrl+r` new repo · `j/k` move · `enter` open · `146G` or `:146` then `enter` jump to #146 · `/` filter · `s` search (saved or typed) · `r` repos · `u` undo last close · `q` quit |
 | Issue | `N` new issue · `ctrl+r` new repo · `n/p` next/prev · `c` comment · `x` close · `X` comment+close · `d` close as duplicate · `l` labels · `a` assign me · `A` assignees · `+` react · `L` lock/unlock · `t` transfer · `u` undo last close · `R` retry comments · `o` browser · `r` repos · `?` all keys · `esc` list |
 | Create | `tab`/`shift+tab` fields · `ctrl+s` create · `ctrl+e` issue body in `$EDITOR` · `esc` close (draft kept) |
+| Pull request | `f` files/conversation · `v` review/approve · `M` merge · `R` refresh · `n/p` next/prev · `c` comment · `o` browser · `P` issues/PRs · `esc` list |
+| Review | Choose Comment, Approve, or Request changes, then `ctrl+s` submit · `ctrl+e` `$EDITOR` · `esc` cancel (draft kept) |
 | Comment | `ctrl+s` send · `ctrl+t` insert template · `ctrl+e` edit in `$EDITOR` · `esc` close (draft kept) |
 | Close | `c` completed · `n` not planned · `esc` cancel |
 | Pickers | type to filter · `↑/↓` move · `space` toggle (labels, assignees) · `enter` choose · `esc` cancel |
@@ -70,6 +73,30 @@ Creation uses your existing `gh` authentication. GitHub permission and validatio
 errors remain on the form with your draft intact. `esc` also keeps each creation draft
 for the current session; quitting discards unsent drafts. Successful creations appear
 in the exit summary.
+
+### Review and merge pull requests
+
+Press `P` from a list or reader to switch between issues and pull requests, keeping
+the search's repository and other filters. Explicit `is:pr` or `type:pr` queries also
+work in `--query` and saved searches. Repository switching keeps the current queue type.
+
+Open a PR with `enter`. The conversation includes its description, reviews, code comments,
+and discussion. Press `f` to read changed files and their patches, then `f` again to return.
+`R` reloads the PR. GitHub may omit binary or large patches and caps the file list at 3,000;
+missing patches and incomplete file lists are identified. Use `o` to inspect the full PR
+in your browser. Creating inline code comments is not supported; reviews accept a summary.
+
+Press `v` and choose **Comment**, **Approve**, or **Request changes**. Enter review text
+and press `ctrl+s` to submit; approval can have an empty body. Review drafts survive
+canceling and failed submissions. Reviews are attached to the displayed commit, and
+new commits detected before submission require reloading and reviewing again.
+
+Press `M` to choose **Merge commit**, **Squash and merge**, or **Rebase and merge**,
+then confirm with `y` (`n` or `esc` cancels). The merge request includes the reviewed
+head SHA so a concurrent push cannot silently add unreviewed commits. GitHub enforces
+permissions, allowed merge methods, and repository rules; failures appear in the status
+line. Draft and conflicting PRs cannot be merged from the form. Merge queues and auto-merge
+are not supported. Confirmed merges remain marked as merged and cannot be undone here.
 
 ### Navigation
 

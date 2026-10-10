@@ -23,6 +23,12 @@ type fakeClient struct {
 	createdDescription string
 	organizations      []string
 	organizationsErr   error
+	pull               github.PullRequest
+	pullErr            error
+	reviewErr          error
+	mergeErr           error
+	reviews            []string
+	merges             []string
 
 	open       []github.Issue // GitHub's search index for the queue, newest first
 	staleIndex bool           // closed issues stay in search results (GitHub's index lags)
@@ -52,6 +58,13 @@ type fakeClient struct {
 
 // matches scopes a repo: query to that repo, as GitHub would; other queries match everything.
 func matches(q string, is github.Issue) bool {
+	if strings.Contains(q, "is:pr") || strings.Contains(q, "type:pr") {
+		if !is.PullRequest {
+			return false
+		}
+	} else if is.PullRequest {
+		return false
+	}
 	return !strings.Contains(q, "repo:") || strings.Contains(q+" ", "repo:"+is.Repo.String()+" ")
 }
 

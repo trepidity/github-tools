@@ -22,6 +22,8 @@ const (
 	pickTemplate                    // insert a reply template into the comment
 	pickLock                        // lock the current issue with a reason
 	pickTransfer                    // move the current issue to another repo
+	pickReview
+	pickMerge
 )
 
 type pickerItem struct {
@@ -104,7 +106,7 @@ func (m *Model) openPicker(p picker) tea.Cmd {
 func (m *Model) closePicker() tea.Cmd {
 	m.mode = m.pk.returnTo
 	m.pk.input.Blur()
-	if m.mode == modeComment {
+	if m.mode == modeComment || m.mode == modeReview {
 		return m.editor.Focus()
 	}
 	return nil
@@ -178,7 +180,11 @@ func (m *Model) picked(kind pickerKind, chosen []string, typed string) tea.Cmd {
 			m.status = err.Error()
 			return nil
 		}
-		return m.startSearch(RepoQuery(r))
+		q := RepoQuery(r)
+		if m.isPullQueue() {
+			q = strings.Replace(q, "is:issue", "is:pr", 1)
+		}
+		return m.startSearch(q)
 	case pickLabels:
 		return m.setLabels(chosen)
 	case pickAssignees:
@@ -214,6 +220,10 @@ func (m *Model) picked(kind pickerKind, chosen []string, typed string) tea.Cmd {
 			return nil
 		}
 		return m.confirmTransfer(to)
+	case pickReview:
+		return m.startReview(github.ReviewEvent(chosen[0]))
+	case pickMerge:
+		return m.confirmMerge(github.MergeMethod(chosen[0]))
 	}
 	panic(fmt.Sprintf("unknown pickerKind %d", int(kind)))
 }

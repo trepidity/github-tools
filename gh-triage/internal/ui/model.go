@@ -55,6 +55,7 @@ const (
 	modeConfirm
 	modeJump
 	modeCreate
+	modeReview
 )
 
 // prefetchWindow is how close the cursor may get to the end of the loaded issues
@@ -140,6 +141,14 @@ type Model struct {
 	organizationsLoaded   bool
 	organizationsLoading  bool
 	organizationsErr      error
+	pulls                 map[string]github.PullRequest
+	pullsLoading          map[string]bool
+	pullsErr              map[string]error
+	merged                map[string]bool
+	reviewDrafts          map[string]string
+	reviewEvent           github.ReviewEvent
+	reviewHead            string
+	pullFiles             bool
 }
 
 type (
@@ -162,6 +171,8 @@ func New(client github.Client, opts Options) Model {
 		opts.Style = "notty"
 	}
 	m := Model{
+		pulls: map[string]github.PullRequest{}, pullsLoading: map[string]bool{}, pullsErr: map[string]error{},
+		merged: map[string]bool{}, reviewDrafts: map[string]string{},
 		client: client, opts: opts, width: 80, height: 24,
 		stateOverride: map[string]string{}, comments: map[string][]github.Comment{}, commentsLoading: map[string]bool{},
 		touched: map[string]time.Time{}, drafts: map[string]string{}, commentsErr: map[string]bool{},
@@ -228,10 +239,13 @@ func readerStyle(style string) (gansi.StyleConfig, bool) {
 // RepoQuery is the queue for one repo: its open issues.
 func RepoQuery(r github.Repo) string { return "repo:" + r.String() + " is:issue is:open" }
 
-// issueQuery keeps pull requests out of any user-supplied query.
+// Searches default to issues unless a type is explicitly selected.
 func issueQuery(q string) string {
-	if strings.Contains(q, "is:issue") {
-		return q
+	for _, token := range strings.Fields(q) {
+		switch strings.ToLower(token) {
+		case "is:issue", "type:issue", "is:pr", "type:pr":
+			return q
+		}
 	}
 	return strings.TrimSpace(q) + " is:issue"
 }
@@ -262,6 +276,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.onOptionsLoaded(msg)
 	case reposLoadedMsg:
 		m.onReposLoaded(msg)
+	case pullLoadedMsg:
+		m.onPullLoaded(msg)
 	case organizationsLoadedMsg:
 		m.organizationsLoading = false
 		m.organizationsErr = msg.err
@@ -299,6 +315,11 @@ func (m *Model) onKey(k tea.KeyMsg) tea.Cmd {
 		return m.keyJump(k)
 	case modeCreate:
 		return m.keyCreate(k)
+	case modeReview:
+		return m.keyReview(k)
+	}
+	if k.String() == "P" {
+		return m.togglePulls()
 	}
 	if k.String() == "N" {
 		return m.startCreation(false)
@@ -374,6 +395,27 @@ func (m *Model) keyFilter(k tea.KeyMsg) tea.Cmd {
 }
 
 func (m *Model) keyIssue(k tea.KeyMsg) tea.Cmd {
+	if is, ok := m.current(); ok && is.PullRequest {
+		switch k.String() {
+		case "v":
+			return m.openReview()
+		case "M":
+			return m.openMerge()
+		case "f":
+			m.pullFiles = !m.pullFiles
+			m.refreshIssue()
+			m.viewport.GotoTop()
+			return nil
+		case "R":
+			m.status = ""
+			delete(m.comments, is.Key())
+			delete(m.commentsErr, is.Key())
+			return tea.Batch(m.loadPull(is), m.loadComments(is))
+		case "x", "X", "d", "t":
+			m.status = "use v to review or M to merge this pull request"
+			return nil
+		}
+	}
 	switch k.String() {
 	case "esc":
 		m.screen = screenList
@@ -655,6 +697,10 @@ func (m *Model) openIssue(vi int) tea.Cmd {
 	m.refreshIssue()
 	m.viewport.GotoTop()
 	cmds := []tea.Cmd{m.maybeFetchMore()}
+	if is, ok := m.current(); ok && is.PullRequest {
+		m.pullFiles = false
+		cmds = append(cmds, m.loadPull(is))
+	}
 	for _, i := range []int{vi, vi + 1} {
 		if i < len(m.visible) {
 			cmds = append(cmds, m.loadComments(m.issues[m.visible[i]]))

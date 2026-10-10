@@ -19,9 +19,11 @@ var (
 )
 
 const (
-	listHelp    = "N new issue · ctrl+r new repo · j/k move · enter open · #G/:# jump · / filter · s search · r repos · u undo · q quit"
+	listHelp    = "P issues/PRs · N new issue · ctrl+r new repo · j/k move · enter open · #G/:# jump · / filter · s search · r repos · u undo · q quit"
 	issueHelp   = "esc list · n/p next/prev · c comment · x close · ? more"
 	commentHelp = "ctrl+s send · ctrl+t template · ctrl+e $EDITOR · esc cancel"
+	reviewHelp  = "ctrl+s submit review · ctrl+e $EDITOR · esc cancel (draft kept)"
+	pullHelp    = "esc list · n/p next/prev · f files/conversation · v review/approve · M merge · R refresh · ? more"
 )
 
 func (m Model) View() string {
@@ -59,7 +61,7 @@ func (m *Model) layout() {
 }
 
 // issueKeys is the full issue-screen key list shown by ?.
-var issueKeys = []string{"esc list", "N new issue", "ctrl+r new repo", "n/p next/prev", "c comment", "x close", "X comment+close", "d dup",
+var issueKeys = []string{"esc list", "P issues/PRs", "N new issue", "ctrl+r new repo", "n/p next/prev", "c comment", "x close", "X comment+close", "d dup",
 	"l labels", "a/A assign", "+ react", "L lock", "t transfer", "u undo", "R retry comments",
 	"o browser", "r repos", "? less"}
 
@@ -72,7 +74,7 @@ func (m Model) chromeHeight() int {
 	} else {
 		h++
 	}
-	if m.mode == modeComment {
+	if m.mode == modeComment || m.mode == modeReview {
 		h += editorHeight
 	}
 	return h
@@ -80,7 +82,11 @@ func (m Model) chromeHeight() int {
 
 // titleLines is the issue title wrapped to at most two lines; only a longer title is cut.
 func (m Model) titleLines(is github.Issue) []string {
-	lines := strings.Split(ansi.Wrap(is.Key()+" · "+is.Title, m.width, ""), "\n")
+	prefix := ""
+	if is.PullRequest {
+		prefix = "PR "
+	}
+	lines := strings.Split(ansi.Wrap(prefix+is.Key()+" · "+is.Title, m.width, ""), "\n")
 	if len(lines) > 2 {
 		lines = []string{lines[0], truncate(strings.Join(lines[1:], " "), m.width)}
 	}
@@ -126,7 +132,11 @@ func (m Model) viewList() string {
 	}
 	b.WriteString(headerStyle.Render(truncate(head, m.width)) + "\n")
 	if len(m.visible) == 0 && !m.loadingPage {
-		b.WriteString("  No issues match.\n")
+		if m.isPullQueue() {
+			b.WriteString("  No pull requests match.\n")
+		} else {
+			b.WriteString("  No issues match.\n")
+		}
 	}
 	l := m.rowLayout()
 	for vi := m.offset; vi < len(m.visible) && vi < m.offset+m.listRows(); vi++ {
@@ -208,6 +218,8 @@ func (m Model) row(vi int, l rowLayout) string {
 	switch {
 	case moved:
 		state = "→ moved  "
+	case m.merged[is.Key()] || m.pulls[is.Key()].Merged:
+		state = "✓ merged  "
 	case m.isClosed(is):
 		state = "✓ closed  "
 	case m.unseen[is.Key()]:
@@ -275,6 +287,15 @@ func (m Model) viewIssue() string {
 	if m.isClosed(is) {
 		state = "✓ closed"
 	}
+	if is.PullRequest {
+		pr := m.pulls[is.Key()]
+		switch {
+		case pr.Merged || m.merged[is.Key()]:
+			state = "✓ merged"
+		case pr.Draft:
+			state += " · draft"
+		}
+	}
 	if url, moved := m.transferred[is.Key()]; moved {
 		state = "→ moved to " + url
 	}
@@ -315,6 +336,8 @@ func (m Model) footer(help string) string {
 		line = statusStyle.Render("close as: c completed · n not planned · esc cancel")
 	case m.mode == modeComment && m.status == "":
 		line = statusStyle.Render("writing comment · " + commentHelp)
+	case m.mode == modeReview && m.status == "":
+		line = statusStyle.Render("review: " + reviewLabel(m.reviewEvent) + " · commit " + shortSHA(m.reviewHead))
 	default:
 		line = statusStyle.Render(m.status)
 	}
@@ -333,11 +356,19 @@ func (m *Model) refreshIssue() {
 		return
 	}
 	var b strings.Builder
-	body := strings.TrimSpace(is.Body)
-	if body == "" {
-		body = "_No description provided._"
+	if is.PullRequest {
+		b.WriteString(m.pullMarkdown(is))
+		if m.pullFiles {
+			m.viewport.SetContent(m.render(b.String()))
+			return
+		}
+	} else {
+		body := strings.TrimSpace(is.Body)
+		if body == "" {
+			body = "_No description provided._"
+		}
+		b.WriteString(body + "\n")
 	}
-	b.WriteString(body + "\n")
 	cs, loaded := m.comments[is.Key()]
 	switch {
 	case !loaded && m.commentsErr[is.Key()]:
@@ -377,7 +408,7 @@ func age(t time.Time) string {
 }
 
 func (m Model) editorView() string {
-	if m.mode != modeComment {
+	if m.mode != modeComment && m.mode != modeReview {
 		return ""
 	}
 	return m.editor.View() + "\n"
@@ -386,9 +417,20 @@ func (m Model) editorView() string {
 // issueHelp swaps in the editor's keys while a comment is being written.
 func (m Model) issueHelp() string {
 	switch {
+	case m.mode == modeReview:
+		return strings.Join(wrapKeys(strings.Split(reviewHelp, " · "), m.width), "\n")
 	case m.mode == modeComment:
 		return commentHelp
-	case m.fullHelp:
+	}
+	if is, ok := m.current(); ok && is.PullRequest {
+		keys := strings.Split(pullHelp, " · ")
+		if m.fullHelp {
+			keys[len(keys)-1] = "? less"
+			keys = append(keys, "P issues/PRs", "c comment", "l labels", "a/A assign", "+ react", "L lock", "o browser", "r repos")
+		}
+		return strings.Join(wrapKeys(keys, m.width), "\n")
+	}
+	if m.fullHelp {
 		return strings.Join(wrapKeys(issueKeys, m.width), "\n")
 	}
 	return issueHelp

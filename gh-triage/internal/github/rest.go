@@ -31,6 +31,7 @@ type apiUser struct {
 }
 
 type apiIssue struct {
+	PullRequest   *struct{} `json:"pull_request"`
 	Number        int       `json:"number"`
 	Title         string    `json:"title"`
 	Body          string    `json:"body"`
@@ -72,7 +73,8 @@ func (it apiIssue) toIssue() (Issue, error) {
 		colors[l.Name] = l.Color
 	}
 	return Issue{
-		Repo: repo, Number: it.Number, Title: it.Title, Body: it.Body, Author: it.User.Login,
+		PullRequest: it.PullRequest != nil,
+		Repo:        repo, Number: it.Number, Title: it.Title, Body: it.Body, Author: it.User.Login,
 		URL: it.HTMLURL, State: it.State, Labels: labels, LabelColors: colors, Comments: it.Comments,
 		CreatedAt: it.CreatedAt, UpdatedAt: it.UpdatedAt, NodeID: it.NodeID, Assignees: logins(it.Assignees), Locked: it.Locked,
 	}, nil

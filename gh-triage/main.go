@@ -1,4 +1,4 @@
-// Command gh-triage is a gh extension for working through GitHub issues quickly.
+// Command gh-triage is a gh extension for working through GitHub issues and pull requests.
 package main
 
 import (
@@ -24,7 +24,7 @@ func main() {
 }
 
 func run() error {
-	query := flag.String("query", "", "GitHub issue search query, e.g. \"org:foo assignee:@me\"")
+	query := flag.String("query", "", "GitHub search query, e.g. \"org:foo assignee:@me\" or \"repo:owner/name is:pr is:open\"")
 	flag.Usage = func() {
 		fmt.Fprintln(os.Stderr, "usage: gh triage [owner/repo | --query \"<search>\"]")
 		flag.PrintDefaults()

@@ -24,6 +24,7 @@ func ParseRepo(s string) (Repo, error) {
 func (r Repo) String() string { return r.owner + "/" + r.name }
 
 type Issue struct {
+	PullRequest bool
 	Repo        Repo
 	Number      int
 	Title       string
@@ -73,6 +74,9 @@ func (r CloseReason) String() string {
 
 // Client is everything the UI needs from GitHub.
 type Client interface {
+	GetPullRequest(ctx context.Context, repo Repo, number int) (PullRequest, error)
+	ReviewPullRequest(ctx context.Context, repo Repo, number int, head string, event ReviewEvent, body string) (Review, error)
+	MergePullRequest(ctx context.Context, repo Repo, number int, head string, method MergeMethod) error
 	CreateIssue(ctx context.Context, repo Repo, title, body string) (Issue, error)
 	// CreateRepo uses the signed-in account when owner is empty, otherwise that
 	// account or an organization. It returns GitHub's canonical repository name.
