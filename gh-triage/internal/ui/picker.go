@@ -236,7 +236,8 @@ func (m Model) viewPicker() string {
 		head += " · loading…"
 	}
 	b.WriteString(headerStyle.Render(truncate(head, m.width)) + "\n" + p.input.View() + "\n")
-	rows := max(m.height-4, 1)
+	help := strings.Join(wrapKeys(strings.Split(p.help(), " · "), m.width), "\n")
+	rows := max(m.height-4-strings.Count(help, "\n"), 1)
 	first := max(0, p.cursor-rows+1)
 	for i := first; i < len(p.items) && i < first+rows; i++ {
 		it := p.items[i]
@@ -257,8 +258,7 @@ func (m Model) viewPicker() string {
 			b.WriteString(truncate("  "+text, m.width) + "\n")
 		}
 	}
-	b.WriteString(statusStyle.Render(m.status) + "\n" + helpStyle.Render(truncate(p.help(), m.width)))
-	return b.String()
+	return m.withFooter(b.String(), m.footer(help))
 }
 
 func (p picker) help() string {

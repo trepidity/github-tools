@@ -1,6 +1,7 @@
 package ui_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -8,6 +9,53 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/trepidity/gh-triage/internal/ui"
 )
+
+func TestGuide_stays_at_bottom_across_screens_and_terminal_sizes(t *testing.T) {
+	cases := []struct {
+		name string
+		keys []string
+		pull bool
+		want string
+	}{
+		{name: "list", want: "q quit"},
+		{name: "issue", keys: []string{"enter"}, want: "? more"},
+		{name: "expanded issue guide", keys: []string{"enter", "?"}, want: "? less"},
+		{name: "comment", keys: []string{"enter", "c"}, want: "esc cancel"},
+		{name: "close", keys: []string{"enter", "x"}, want: "? more"},
+		{name: "repos", keys: []string{"r"}, want: "esc cancel"},
+		{name: "search", keys: []string{"s"}, want: "esc cancel"},
+		{name: "new issue", keys: []string{"N"}, want: "ctrl+e $EDITOR"},
+		{name: "new repo", keys: []string{"ctrl+r"}, want: "esc close (draft kept)"},
+		{name: "pull", pull: true, keys: []string{"enter"}, want: "? more"},
+		{name: "review picker", pull: true, keys: []string{"enter", "v"}, want: "esc cancel"},
+		{name: "review", pull: true, keys: []string{"enter", "v", "enter"}, want: "esc cancel (draft kept)"},
+	}
+	for _, size := range []tea.WindowSizeMsg{{Width: 60, Height: 24}, {Width: 120, Height: 40}} {
+		for _, tc := range cases {
+			t.Run(fmt.Sprintf("%s/%dx%d", tc.name, size.Width, size.Height), func(t *testing.T) {
+				f, opts := threeIssues(t), repoOpts
+				if tc.pull {
+					f, opts = pullClient(t), ui.Options{Query: "repo:o/r is:pr is:open"}
+				}
+				m := send(t, start(t, f, opts), size)
+				if tc.name == "new repo" {
+					m = send(t, m, tea.KeyMsg{Type: tea.KeyCtrlR})
+				} else {
+					m = press(t, m, tc.keys...)
+				}
+				v := lines(m)
+				if len(v) != size.Height || !strings.Contains(v[len(v)-1], tc.want) {
+					t.Fatalf("guide should end at row %d with %q:\n%s", size.Height, tc.want, text(m))
+				}
+				for _, line := range v {
+					if ansi.StringWidth(line) > size.Width {
+						t.Fatalf("line exceeds terminal width: %q", line)
+					}
+				}
+			})
+		}
+	}
+}
 
 // Protects: on a wide terminal the issue body wraps at a readable width instead of
 // running edge to edge.

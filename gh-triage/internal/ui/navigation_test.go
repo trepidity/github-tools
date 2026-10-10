@@ -102,7 +102,7 @@ func TestIssueHelp_shows_esc_list_on_an_80_column_terminal(t *testing.T) {
 	m = send(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	v := lines(press(t, m, "enter"))
-	if help := v[len(v)-1]; !strings.Contains(help, "esc list") {
+	if help := strings.Join(v[len(v)-2:], "\n"); !strings.Contains(help, "esc list") || !strings.Contains(help, "Shift+P issues/PRs") || !strings.Contains(help, "r repos") {
 		t.Fatalf("help line = %q", help)
 	}
 }

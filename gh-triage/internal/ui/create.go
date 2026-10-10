@@ -298,6 +298,5 @@ func (m Model) viewCreate() string {
 	if !m.creatingRepo {
 		help += " · ctrl+e $EDITOR"
 	}
-	lines = append(lines, m.footer(strings.Join(wrapKeys(strings.Split(help, " · "), m.width), "\n")))
-	return strings.Join(lines, "\n")
+	return m.withFooter(strings.Join(lines, "\n"), m.footer(strings.Join(wrapKeys(strings.Split(help, " · "), m.width), "\n")))
 }

@@ -46,6 +46,10 @@ gh triage --query "org:foo assignee:@me" # any GitHub issue search
 gh triage --query "repo:owner/repo is:pr is:open" # review pull requests
 ```
 
+Every screen keeps its keyboard guide at the bottom of the terminal. Hints wrap on
+narrow terminals. `Shift+P` toggles issues/PRs, and `r` opens the repository switcher
+from a list or reader; `?` expands the reader's guide.
+
 | Screen | Keys |
 |---|---|
 | List | `P` toggle issues/PRs · `N` new issue · `ctrl+r` new repo · `j/k` move · `enter` open · `146G` or `:146` then `enter` jump to #146 · `/` filter · `s` search (saved or typed) · `r` repos · `u` undo last close · `q` quit |

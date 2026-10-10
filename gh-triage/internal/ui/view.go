@@ -15,15 +15,15 @@ var (
 	selectedStyle = lipgloss.NewStyle().Reverse(true)
 	dimStyle      = lipgloss.NewStyle().Faint(true)
 	statusStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
-	helpStyle     = lipgloss.NewStyle().Faint(true)
+	helpStyle     = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "240", Dark: "252"})
 )
 
 const (
-	listHelp    = "P issues/PRs · N new issue · ctrl+r new repo · j/k move · enter open · #G/:# jump · / filter · s search · r repos · u undo · q quit"
-	issueHelp   = "esc list · n/p next/prev · c comment · x close · ? more"
+	listHelp    = "Shift+P issues/PRs · r repos · j/k move · enter open · N new issue · ctrl+r new repo · #G/:# jump · / filter · s search · u undo · q quit"
+	issueHelp   = "esc list · Shift+P issues/PRs · r repos · n/p next/prev · c comment · x close · ? more"
 	commentHelp = "ctrl+s send · ctrl+t template · ctrl+e $EDITOR · esc cancel"
 	reviewHelp  = "ctrl+s submit review · ctrl+e $EDITOR · esc cancel (draft kept)"
-	pullHelp    = "esc list · n/p next/prev · f files/conversation · v review/approve · M merge · R refresh · ? more"
+	pullHelp    = "esc list · Shift+P issues/PRs · r repos · n/p next/prev · f files/conversation · v review/approve · M merge · R refresh · ? more"
 )
 
 func (m Model) View() string {
@@ -61,7 +61,7 @@ func (m *Model) layout() {
 }
 
 // issueKeys is the full issue-screen key list shown by ?.
-var issueKeys = []string{"esc list", "P issues/PRs", "N new issue", "ctrl+r new repo", "n/p next/prev", "c comment", "x close", "X comment+close", "d dup",
+var issueKeys = []string{"esc list", "Shift+P issues/PRs", "N new issue", "ctrl+r new repo", "n/p next/prev", "c comment", "x close", "X comment+close", "d dup",
 	"l labels", "a/A assign", "+ react", "L lock", "t transfer", "u undo", "R retry comments",
 	"o browser", "r repos", "? less"}
 
@@ -142,8 +142,7 @@ func (m Model) viewList() string {
 	for vi := m.offset; vi < len(m.visible) && vi < m.offset+m.listRows(); vi++ {
 		b.WriteString(m.row(vi, l) + "\n")
 	}
-	b.WriteString(m.footer(m.listHelp()))
-	return b.String()
+	return m.withFooter(b.String(), m.footer(m.listHelp()))
 }
 
 // Column widths for list rows. The title takes whatever is left.
@@ -309,11 +308,28 @@ func (m Model) viewIssue() string {
 	if len(is.Assignees) > 0 {
 		meta += " · assigned: " + strings.Join(is.Assignees, ", ")
 	}
-	return headerStyle.Render(strings.Join(m.titleLines(is), "\n")) + "\n" +
+	body := headerStyle.Render(strings.Join(m.titleLines(is), "\n")) + "\n" +
 		truncate(meta, m.width) + "\n" +
 		dimStyle.Render(strings.Repeat("─", m.width)) + "\n" +
-		m.viewport.View() + "\n" + m.editorView() +
-		m.footer(m.issueHelp())
+		m.viewport.View() + "\n" + m.editorView()
+	return m.withFooter(body, m.footer(m.issueHelp()))
+}
+
+// withFooter reserves the bottom lines for status and help on every screen.
+func (m Model) withFooter(body, footer string) string {
+	footerHeight := lipgloss.Height(footer)
+	bodyLines := strings.Split(strings.TrimSuffix(body, "\n"), "\n")
+	available := max(m.height-footerHeight, 0)
+	if len(bodyLines) > available {
+		bodyLines = bodyLines[:available]
+	}
+	for len(bodyLines) < available {
+		bodyLines = append(bodyLines, "")
+	}
+	if len(bodyLines) == 0 {
+		return footer
+	}
+	return strings.Join(bodyLines, "\n") + "\n" + footer
 }
 
 // footer is the status line (or the active input) above the help line.
@@ -345,7 +361,7 @@ func (m Model) footer(help string) string {
 	for i, l := range helpLines {
 		helpLines[i] = truncate(l, m.width)
 	}
-	return line + "\n" + helpStyle.Render(strings.Join(helpLines, "\n"))
+	return truncate(line, m.width) + "\n" + helpStyle.Render(strings.Join(helpLines, "\n"))
 }
 
 // refreshIssue re-renders the current issue's body and comments into the viewport.
@@ -420,18 +436,18 @@ func (m Model) issueHelp() string {
 	case m.mode == modeReview:
 		return strings.Join(wrapKeys(strings.Split(reviewHelp, " · "), m.width), "\n")
 	case m.mode == modeComment:
-		return commentHelp
+		return strings.Join(wrapKeys(strings.Split(commentHelp, " · "), m.width), "\n")
 	}
 	if is, ok := m.current(); ok && is.PullRequest {
 		keys := strings.Split(pullHelp, " · ")
 		if m.fullHelp {
 			keys[len(keys)-1] = "? less"
-			keys = append(keys, "P issues/PRs", "c comment", "l labels", "a/A assign", "+ react", "L lock", "o browser", "r repos")
+			keys = append(keys, "c comment", "l labels", "a/A assign", "+ react", "L lock", "o browser")
 		}
 		return strings.Join(wrapKeys(keys, m.width), "\n")
 	}
 	if m.fullHelp {
 		return strings.Join(wrapKeys(issueKeys, m.width), "\n")
 	}
-	return issueHelp
+	return strings.Join(wrapKeys(strings.Split(issueHelp, " · "), m.width), "\n")
 }
